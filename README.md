@@ -3,7 +3,7 @@
 # sio_2425_project
 
 # Group members
-- A
-- B
-- C
+- David Amorim - 112610
+- Francisca Silva - 112841
+- Guilherme Amaral - 113207
 
