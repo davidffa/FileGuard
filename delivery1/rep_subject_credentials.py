@@ -9,6 +9,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
 def main():
+    if len(sys.argv) < 3:
+        usage()
+
     password = sys.argv[1]
     credentials_file = sys.argv[2]
 
