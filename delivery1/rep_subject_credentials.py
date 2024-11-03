@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import sys
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -15,12 +14,10 @@ def main():
     password = sys.argv[1]
     credentials_file = sys.argv[2]
 
-    salt = os.urandom(16)
-
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=salt,
+        salt=bytes(),
         iterations=480000,
     )
 
