@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -14,10 +15,12 @@ def main():
     password = sys.argv[1]
     credentials_file = sys.argv[2]
 
+    salt = os.urandom(16)
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=bytes(),
+        salt=salt,
         iterations=480000,
     )
 
@@ -33,7 +36,7 @@ def main():
     )
 
     with open(credentials_file, "wb") as f:
-        f.write(public_key_pem)
+        f.write(salt + public_key_pem)
 
 def usage():
     print(f"Usage: {sys.argv[0]} <password> <credentials file>")
