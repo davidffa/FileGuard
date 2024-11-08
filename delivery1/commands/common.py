@@ -41,7 +41,7 @@ def parse_args(state, positional_args):
             logger.error(f'Key file not found or invalid: {args.key[0]}')
             sys.exit(-1)
 
-        with open(args.key[0], 'rb') as f:
+        with open(args.key[0], 'r') as f:
             state['REP_PUB_KEY'] = f.read()
             logger.info('Overriding REP_PUB_KEY from command line')
 
