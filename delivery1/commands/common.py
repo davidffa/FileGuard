@@ -21,12 +21,15 @@ def parse_env(state):
                 logger.debug('Loaded REP_PUB_KEY from Environment')
     return state
 
-def parse_args(state):
+def parse_args(state, positional_args):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-k", '--key', nargs=1, help="Path to the key file")
     parser.add_argument("-r", '--repo', nargs=1, help="Address:Port of the repository")
     parser.add_argument("-v", '--verbose', help="Increase verbosity", action="store_true")
+
+    for arg in positional_args:
+        parser.add_argument(arg)
 
     args = parser.parse_args()
     if args.verbose:
@@ -38,12 +41,16 @@ def parse_args(state):
             logger.error(f'Key file not found or invalid: {args.key[0]}')
             sys.exit(-1)
 
-        with open(args.key[0], 'r') as f:
+        with open(args.key[0], 'rb') as f:
             state['REP_PUB_KEY'] = f.read()
             logger.info('Overriding REP_PUB_KEY from command line')
 
     if args.repo:
         state['REP_ADDRESS'] = args.repo[0]
         logger.info('Overriding REP_ADDRESS from command line')
+
+    for arg in positional_args:
+        state[arg] = getattr(args, arg)
+
 
     return state

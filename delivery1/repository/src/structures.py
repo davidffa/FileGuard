@@ -39,10 +39,11 @@ class Organization:
         #Create manager role for first subject
         manager = Role('Manager')
         manager.add_subject(subject)
+
         for permission in Permission_Organization:
             manager.add_permission(permission)
-        self.acl = [manager]
 
+        self.acl = [manager]
 
     def __str__(self):
         return self.name
