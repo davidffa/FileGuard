@@ -32,36 +32,21 @@ def main():
     session_file = state["session_file"]
     password = state["password"]
 
-    with open(credentials_file, "r") as f:
+    with open(credentials_file, "rb") as f:
         credentials = f.read()
-        salt=credentials[0:15]
+        salt=credentials[0:16]
     
-    salt = bytes(salt, "utf8")
-    real_pub_key=credentials[len(salt):len(credentials)]
+    with open(credentials_file, "r") as f:
+        real_pub_key = f.read()
+        real_pub_key = real_pub_key[16:].encode()
+
+    print(salt)
+    print(real_pub_key)
 
     if not salt:
         logger.error("Salt not found in credentials file")
         sys.exit(-1)
     
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=480000,
-    )
-
-    key = kdf.derive(bytes(password, "utf8"))
-    private_key = ec.derive_private_key(int.from_bytes(key, "big"), ec.SECP256R1())
-    public_key = private_key.public_key()
-    public_key_pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    
-    ##if public_key_pem != real_pub_key:
-    ##    logger.error("Password and key doesnt match")
-    ##    sys.exit(-1)
-
     
     body = {
         "organization": state["organization"],
