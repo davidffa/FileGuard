@@ -13,7 +13,7 @@ def org_list():
     data= []
     for org in organizations:
         data.append(organizations[org].get_org_info())
-    return json.dumps(data), 201
+    return json.dumps(data), 200
 
 @app.route("/organization/create", methods=["POST"])
 def create_org():
