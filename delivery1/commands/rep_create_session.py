@@ -2,6 +2,7 @@
 
 import logging
 import sys
+import json
 
 import requests
 from common import parse_args, parse_env
@@ -27,7 +28,6 @@ def main():
         logger.error("Must set the Repository Public Key")
         sys.exit(-1)
 
-      
     credentials_file = state["credentials_file"]
     session_file = state["session_file"]
     password = state["password"]
@@ -46,22 +46,19 @@ def main():
     if not salt:
         logger.error("Salt not found in credentials file")
         sys.exit(-1)
-    
-    
+
     body = {
         "organization": state["organization"],
         "username": state["username"],
     }
-      
     req = requests.post(f'http://{state["REP_ADDRESS"]}/organization/create/session', json=body)
 
     if req.status_code == 201:
         logger.info("Session created")
         logger.info(req.json())
         with open(session_file, "w") as f:
-            f.write("Organization: "+req.json()["Organization"] + "\n")
-            f.write(req.json()["Session"] + "\n")
-    
+            f.write(json.dumps(req.json()))
+
     else:
         logger.error(req.json())
         sys.exit(-1)

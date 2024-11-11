@@ -1,7 +1,7 @@
 import json
 
 from flask import Flask, request
-from src.structures import Organization, Subject
+from src.structures import Organization, Subject, Session
 
 
 app = Flask(__name__)
@@ -49,7 +49,6 @@ def create_session():
     org_name = request.json["organization"]
     username = request.json["username"]
 
-
     if org_name not in organizations:
         res = { "message": "Organization does not exist" }
         return json.dumps(res), 400
@@ -58,10 +57,8 @@ def create_session():
         res = { "message": "Subject does not exist" }
         return json.dumps(res), 400
     
-    
-
     org= organizations[org_name]
     subject= org.find_subject(username)
-    session= org.create_session(subject)
-    data= {"Organization": org_name, "Session": session.get_info()}
+    new_session= Session(subject, 3600, org)
+    data= new_session.get_info()
     return json.dumps(data), 201

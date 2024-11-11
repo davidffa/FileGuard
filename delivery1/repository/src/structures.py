@@ -39,7 +39,6 @@ class Organization:
         self.session_lifetime= 3600
         self.name = name
         self.docs = []
-        self.sessions= []
         #Create manager role for first subject
         manager = Role('Manager')
         manager.add_subject(subject)
@@ -49,10 +48,7 @@ class Organization:
 
         self.acl = [manager]
     
-    def create_session(self, username):
-        session= Session(username, self.session_lifetime)
-        self.sessions.append(session)
-        return session
+ 
 
     def get_org_info(self):
         manager= None
@@ -117,12 +113,14 @@ class Subject:
 
 
 class Session:
-    def __init__(self, subject, lifetime):
+    def __init__(self, subject, lifetime, organization):
+        self.organization= organization
         self.subject = subject
         self.keys= [self.create_key()]
         self.id= uuid.uuid4()
         self.lifetime= lifetime
         self.creation_date= datetime.now()
+
 
     def create_key(self):
         key= ec.generate_private_key(ec.SECP256R1())
@@ -132,5 +130,11 @@ class Session:
         self.keys.append(key)
 
     def get_info(self):
-        return f"Session ID: {self.id}\n{self.subject}\nLifetime: {self.lifetime}"
+        info = {
+            "Organization": self.organization.name,
+            "Subject_UserName": self.subject.username,
+            "Subject_email": self.subject.email,
+            "Lifetime": self.lifetime
+        }
+        return info
             
