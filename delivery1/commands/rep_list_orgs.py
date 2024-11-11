@@ -26,7 +26,7 @@ def main():
       
     req = requests.get(f'http://{state["REP_ADDRESS"]}/organization/list')
 
-    if req.status_code == 201:
+    if req.status_code == 200:
         logger.info("Organizations List:")
         for org in req.json():
             logger.info(org)
