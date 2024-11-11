@@ -26,7 +26,7 @@ def main():
 
     key = kdf.derive(bytes(password, "utf8"))
 
-    private_key = ec.derive_private_key(int.from_bytes(key), ec.SECP256R1())
+    private_key = ec.derive_private_key(int.from_bytes(key, "big"), ec.SECP256R1())
 
     public_key = private_key.public_key()
 

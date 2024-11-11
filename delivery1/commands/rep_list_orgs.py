@@ -12,7 +12,7 @@ logger.setLevel(logging.INFO)
 
 def main():
     state = parse_env({})
-    positional_args = ["organization", "username", "name", "email", "pub_key_file"]
+    positional_args = []
     state = parse_args(state, positional_args)
 
     if 'REP_ADDRESS' not in state:
@@ -23,25 +23,14 @@ def main():
         logger.error("Must set the Repository Public Key")
         sys.exit(-1)
 
-
-    pub_key_file = state["pub_key_file"]
-
-    with open(pub_key_file, "r") as f:
-        pub_key = f.read()
-
-    body = {
-        "organization": state["organization"],
-        "username": state["username"],
-        "name": state["name"],
-        "email": state["email"],
-        "pub_key": pub_key
-    }
       
-    req = requests.post(f'http://{state["REP_ADDRESS"]}/organization/create', json=body)
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/organization/list')
 
-    if req.status_code == 201:
-        logger.info("Organization created")
-        logger.info(req.json())
+    if req.status_code == 200:
+        logger.info("Organizations List:")
+        for org in req.json():
+            logger.info(org)
+        
     else:
         logger.error(req.json())
         sys.exit(-1)
