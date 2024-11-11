@@ -122,6 +122,7 @@ class Session:
         self.keys= [self.create_key()]
         self.id= uuid.uuid4()
         self.lifetime= lifetime
+        self.creation_date= datetime.now()
 
     def create_key(self):
         key= ec.generate_private_key(ec.SECP256R1())
