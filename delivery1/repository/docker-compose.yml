@@ -1,0 +1,26 @@
+services:
+  database:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: repository
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:password@database:5432/repository
+
+    ports:
+      - "8000:8000"
+
+volumes:
+  db:

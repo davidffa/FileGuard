@@ -1,17 +1,16 @@
 import base64
 import json
 import os
-from datetime import datetime
 from functools import wraps
-from uuid import uuid4
 
-from flask import Flask, g, request
-from src.crypto import decrypt_aes256_cbc, sha256_digest
-from src.structures import Document, Organization, Session, Subject
+from flask import g, jsonify, request
 
-app = Flask(__name__)
+from . import create_app, db
+from .crypto import decrypt_aes256_cbc, sha256_digest
+from .models import Document, Organization, Subject
+from .util import Session
 
-organizations = {}
+app = create_app()
 
 def requires_session(f):
     @wraps(f)
@@ -22,8 +21,8 @@ def requires_session(f):
 
         session = json.loads(base64.b64decode(request.headers["session"]))
 
-        g.organization = session["organization"]
-        g.subject = session["subject"]
+        g.org_id = session["org_id"]
+        g.subject_id = session["subject_id"]
 
         return f(*args, **kwargs)
 
@@ -31,10 +30,7 @@ def requires_session(f):
 
 @app.route("/organization/list")
 def org_list():
-    data= []
-    for org in organizations:
-        data.append(organizations[org].get_org_info())
-    return json.dumps(data), 200
+    return jsonify(Organization.query.all())
 
 @app.route("/organization/create", methods=["POST"])
 def create_org():
@@ -42,8 +38,9 @@ def create_org():
         res = { "message": "Empty request body" }
         return json.dumps(res), 400
 
+    existing_org = Organization.query.filter_by(name=request.json["organization"]).first()
 
-    if request.json["organization"] in organizations:
+    if existing_org is not None:
         res = { "message": "Organization already exists" }
         return json.dumps(res), 400
 
@@ -53,9 +50,13 @@ def create_org():
     email = request.json["email"]
     pub_key = request.json["pub_key"]
 
-    subject = Subject(username, name, email, pub_key)
-    organizations[org_name] = Organization(org_name, subject)
+    org = Organization(name=org_name)
+    db.session.add(org)
+    db.session.flush()
 
+    subject = Subject(username=username, name=name, email=email, pub_key=pub_key, org_id=org.id)
+    db.session.add(subject)
+    db.session.commit()
 
     return "{}", 201
 
@@ -105,24 +106,15 @@ def add_doc():
         f.write(secret_key)
         f.write(iv)
 
-    org_name = g.organization
-    subject = g.subject
+    org_id = g.org_id
+    subject_id = g.subject_id
 
-    metadata = {
-        "document_handle": uuid4().hex,
-        "name": file_name,
-        "create_date": str(datetime.now()),
-        "creator": subject,
-        "file_handle": file_handle,
-        "acl": [],
-        "deleter": None,
-    }
+    doc = Document(name=file_name, creator_id=subject_id, file_handle=file_handle, org_id=org_id)
 
-    doc = Document(file_name, metadata)
+    db.session.add(doc)
+    db.session.commit()
 
-    organizations[org_name].docs.append(doc)
-
-    return json.dumps(metadata), 201
+    return jsonify(doc), 201
 
 @app.route("/organization/create/session", methods=["POST"])
 def create_session():
@@ -133,17 +125,22 @@ def create_session():
 
     org_name = request.json["organization"]
     username = request.json["username"]
+    
+    organization = Organization.query.filter_by(name=org_name).first()
 
-    if org_name not in organizations:
+    if organization is None:
         res = { "message": "Organization does not exist" }
         return json.dumps(res), 400
+
+    subject = next((sub for sub in organization.subjects if sub.username == username), None)
     
-    if username not in organizations[org_name].get_subjects():
+    if subject is None:
         res = { "message": "Subject does not exist" }
         return json.dumps(res), 400
     
-    org= organizations[org_name]
-    subject= org.find_subject(username)
-    new_session= Session(subject, 3600, org)
-    data= new_session.get_info()
+    session = Session(str(organization.id), str(subject.id))
+    data = session.get_info()
     return json.dumps(data), 201
+
+if __name__ == "__main__":
+    app.run(port=8000, debug=True)
