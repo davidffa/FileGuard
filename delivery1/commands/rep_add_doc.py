@@ -58,7 +58,7 @@ def main():
         "session": session
     }
 
-    req = requests.post(f'http://{state['REP_ADDRESS']}/document', headers=headers, data=body, files=dict(file=ciphertext, secret_key=secret_key, iv=iv))
+    req = requests.post(f'http://{state["REP_ADDRESS"]}/document', headers=headers, data=body, files=dict(file=ciphertext, secret_key=secret_key, iv=iv))
 
     if req.status_code == 201:
         logger.info("Document created")

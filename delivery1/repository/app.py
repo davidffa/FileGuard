@@ -3,7 +3,7 @@ import json
 import os
 from functools import wraps
 
-from flask import g, jsonify, request
+from flask import Response, g, jsonify, request
 
 from . import create_app, db
 from .crypto import decrypt_aes256_cbc, sha256_digest
@@ -141,6 +141,49 @@ def create_session():
     session = Session(str(organization.id), str(subject.id))
     data = session.get_info()
     return json.dumps(data), 201
+
+@app.route("/document_metadata", methods=['GET'])   
+@requires_session
+def get_doc_metadata():
+    org_id = g.org_id
+    subject_id = g.subject_id
+    doc_name = request.args.get("document_name")
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization not found" }
+        return json.dumps(res), 404
+
+    document = next((doc for doc in organization.documents if doc.name == doc_name), None)
+
+    if document is None:
+        res = { "message": "Document not found" }
+        return json.dumps(res), 404
+
+    file_handle = document.file_handle
+
+    with open(f"./documents/{file_handle}-metadata.bin", "rb") as f:
+        data = f.read()
+
+    data_size = int.from_bytes(data[0:2], "big")
+
+    json_data = json.loads(data[2:data_size+2])
+
+    json_data["file_handle"] = document.file_handle
+    json_data["creator"] = str(document.creator_id)
+    json_data["create_date"] = document.create_date.isoformat()
+    # ACL ?
+    json_data["deleter"] = document.deleter
+
+    new_data = json.dumps(json_data).encode("utf8")
+
+    new_size = len(new_data).to_bytes(2, "big")
+
+    return Response(
+        new_size + new_data + data[2+data_size:],
+        mimetype="application/octet-stream",
+    )
 
 if __name__ == "__main__":
     app.run(port=8000, debug=True)
