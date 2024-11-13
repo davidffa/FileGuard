@@ -4,11 +4,10 @@ import os
 from functools import wraps
 
 from flask import Response, g, jsonify, request
-
-from . import create_app, db
-from .crypto import decrypt_aes256_cbc, sha256_digest
-from .models import Document, Organization, Subject
-from .util import Session
+from src import create_app, db
+from src.crypto import decrypt_aes256_cbc, sha256_digest
+from src.models import Document, Organization, Subject
+from src.util import Session
 
 app = create_app()
 
