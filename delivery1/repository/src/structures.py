@@ -1,15 +1,13 @@
-from datetime import datetime
 import uuid
+from datetime import datetime
+
 from src.consts import Permission_Organization
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
 
 class Document:
-    def __init__(self, name, file, metadata):
+    def __init__(self, name, metadata):
         self.name = name
         self.metadata = metadata
-        self.file = file
 
 class Metadata:
     def __init__(self, doc_name, document_handle, creator, file_handle):
@@ -116,25 +114,15 @@ class Session:
     def __init__(self, subject, lifetime, organization):
         self.organization= organization
         self.subject = subject
-        self.keys= [self.create_key()]
         self.id= uuid.uuid4()
         self.lifetime= lifetime
         self.creation_date= datetime.now()
 
-
-    def create_key(self):
-        key= ec.generate_private_key(ec.SECP256R1())
-        return key.public_key()
-
-    def add_key(self, key):
-        self.keys.append(key)
-
     def get_info(self):
         info = {
-            "Organization": self.organization.name,
-            "Subject_UserName": self.subject.username,
-            "Subject_email": self.subject.email,
-            "Lifetime": self.lifetime
+            "organization": self.organization.name,
+            "subject": self.subject.username,
+            "lifetime": self.lifetime
         }
         return info
             
