@@ -184,5 +184,16 @@ def get_doc_metadata():
         mimetype="application/octet-stream",
     )
 
+@app.route('/files/<file_handle>', methods=["GET"])
+def get_file(file_handle):
+    if os.path.isfile(f"./documents/{file_handle}.bin") : 
+        with open(f"./documents/{file_handle}.bin", 'rb') as f:
+            return Response(
+                f.read(),
+                mimetype="application/octet-stream"
+            )
+
+    return "", 404
+
 if __name__ == "__main__":
     app.run(port=8000, debug=True)
