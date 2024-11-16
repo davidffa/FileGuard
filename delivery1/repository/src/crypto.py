@@ -25,7 +25,6 @@ def encrypt_aes256_cbc(plaintext: bytes, secret_key: bytes, iv: bytes) -> bytes:
 
     return encryptor.update(padded_data) + encryptor.finalize()
 
-
 def decrypt_aes256_cbc(secret_key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
     algorithm = algorithms.AES256(secret_key)
     cipher = Cipher(algorithm, modes.CBC(iv))

@@ -16,8 +16,12 @@ services:
     build:
       context: .
     restart: unless-stopped
+    stop_signal: SIGINT
+    
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:password@database:5432/repository
+      MASTER_PASSWORD: $MASTER_PASSWORD
 
     ports:
       - "8000:8000"
