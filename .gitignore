@@ -19,3 +19,6 @@ venv/
 .DS_Store
 
 documents/
+salt.bin
+session.bin
+credentials.bin
