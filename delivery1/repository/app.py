@@ -141,6 +141,24 @@ def create_session():
     data = session.get_info()
     return json.dumps(data), 201
 
+@app.route("/organization/subjects", methods=["GET"])
+@requires_session
+def get_subjects():
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+    data= {}
+    if organization is None:
+        res = { "message": "Organization not found" }
+        return json.dumps(res), 404
+    else:
+        for subject in organization.subjects:
+            data[subject.username] = {
+                "suspended": subject.suspended
+            }
+        return json.dumps(data), 200
+            
+
 @app.route("/document_metadata", methods=['GET'])   
 @requires_session
 def get_doc_metadata():
@@ -194,6 +212,8 @@ def get_file(file_handle):
             )
 
     return "", 404
+
+
 
 if __name__ == "__main__":
     app.run(port=8000, debug=True)
