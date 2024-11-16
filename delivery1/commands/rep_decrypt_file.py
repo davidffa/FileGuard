@@ -2,17 +2,12 @@
 
 import json
 import sys
+from argparse import ArgumentParser
 
 from crypto import decrypt_aes256_cbc, sha256_digest
 
 
-def main():
-    if len(sys.argv) < 3:
-        usage()
-
-    filepath = sys.argv[1]
-    metadata_file = sys.argv[2]
-
+def main(filepath, metadata_file):
     with open(metadata_file, "rb") as f:
         metadata = f.read()
 
@@ -44,9 +39,11 @@ def main():
     sys.stdout.buffer.write(plaintext)
     sys.stdout.buffer.flush()
 
-def usage():
-    print(f"Usage: {sys.argv[0]} <encrypted file> <encryption metadata>")
-    sys.exit(1)
-
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser()
+    parser.add_argument("encrypted_file")
+    parser.add_argument("encrypted_metadata")
+
+    args = parser.parse_args();
+
+    main(args.encrypted_file, args.encrypted_metadata)
