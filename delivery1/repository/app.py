@@ -184,33 +184,35 @@ def get_doc_metadata():
         mimetype="application/octet-stream",
     )
 
-@app.route("/suspend", methods=["POST"])
+@app.route("/suspend", methods=["PUT"])
 @requires_session
-def suspend_subject():
+def put_suspension():
     org_id = g.org_id
     
-    subject_name= request.form["username"]
+    subject_name= request.json["username"]
 
     organization = Organization.query.get(org_id)
     
     if organization is None:
         res = { "message": "Organization not found" }
         return json.dumps(res), 404
+    
     for subject in organization.subjects:
         if subject.username == subject_name:
-            db.replace(subject.suspended, True)
+            subject.suspended = True
             db.session.commit()
             res= { "message": "Subject suspended" }
             return json.dumps(res), 201
+        
     res = { "message": "Subject not found" }
     return json.dumps(res), 404
 
-@app.route("/activate", methods=["POST"])
+@app.route("/activate", methods=["PUT"])
 @requires_session
-def activate_subject():
+def put_activation():
     org_id = g.org_id
 
-    subject_name = request.form["username"]
+    subject_name = request.json["username"]
 
     organization = Organization.query.get(org_id)
 
@@ -219,7 +221,7 @@ def activate_subject():
         return json.dumps(res), 404
     for subject in organization.subjects:   
         if subject.username == subject_name:
-            db.replace(subject.suspended, False)
+            subject.suspended = False
             db.session.commit()
             res= { "message": "Subject activated" }
             return json.dumps(res), 201

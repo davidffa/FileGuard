@@ -41,7 +41,7 @@ def main():
         "session": session
     }
 
-    req = requests.post(f'http://{state["REP_ADDRESS"]}/suspend', headers=headers, data=body)
+    req = requests.put(f'http://{state["REP_ADDRESS"]}/suspend', headers=headers, json=body)
 
     if req.status_code == 201:
         logger.info("Subject suspended")
