@@ -202,6 +202,50 @@ def get_doc_metadata():
         mimetype="application/octet-stream",
     )
 
+@app.route("/suspend", methods=["PUT"])
+@requires_session
+def put_suspension():
+    org_id = g.org_id
+    
+    subject_name= request.json["username"]
+
+    organization = Organization.query.get(org_id)
+    
+    if organization is None:
+        res = { "message": "Organization not found" }
+        return json.dumps(res), 404
+    
+    for subject in organization.subjects:
+        if subject.username == subject_name:
+            subject.suspended = True
+            db.session.commit()
+            res= { "message": "Subject suspended" }
+            return json.dumps(res), 201
+        
+    res = { "message": "Subject not found" }
+    return json.dumps(res), 404
+
+@app.route("/activate", methods=["PUT"])
+@requires_session
+def put_activation():
+    org_id = g.org_id
+
+    subject_name = request.json["username"]
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization not found" }
+        return json.dumps(res), 404
+    for subject in organization.subjects:   
+        if subject.username == subject_name:
+            subject.suspended = False
+            db.session.commit()
+            res= { "message": "Subject activated" }
+            return json.dumps(res), 201
+    res = { "message": "Subject not found" }
+    return json.dumps(res), 404
+
 @app.route('/files/<file_handle>', methods=["GET"])
 def get_file(file_handle):
     if os.path.isfile(f"./documents/{file_handle}.bin") : 
