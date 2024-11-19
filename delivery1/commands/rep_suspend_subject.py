@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import base64
 import logging
+import os
 import sys
 
 import requests
 from common import parse_args, parse_env
+from crypto import encrypt_aes256_cbc, sha256_digest
 
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
@@ -12,7 +15,7 @@ logger.setLevel(logging.INFO)
 
 def main():
     state = parse_env({})
-    positional_args = ["organization", "username", "name", "email", "pub_key_file"]
+    positional_args = ["session_file", "username"]
     state = parse_args(state, positional_args)
 
     if 'REP_ADDRESS' not in state:
@@ -23,24 +26,25 @@ def main():
         logger.error("Must set the Repository Public Key")
         sys.exit(-1)
 
+    session_file = state["session_file"]
 
-    pub_key_file = state["pub_key_file"]
+    with open(session_file, "rb") as f:
+        session = base64.b64encode(f.read())
 
-    with open(pub_key_file, "r") as f:
-        pub_key = f.read()
+    username = state["username"]
 
     body = {
-        "organization": state["organization"],
-        "username": state["username"],
-        "name": state["name"],
-        "email": state["email"],
-        "pub_key": pub_key
+        "username": username
     }
       
-    req = requests.post(f'http://{state["REP_ADDRESS"]}/organization/create', json=body)
+    headers = {
+        "session": session
+    }
+
+    req = requests.put(f'http://{state["REP_ADDRESS"]}/suspend', headers=headers, json=body)
 
     if req.status_code == 201:
-        logger.info("Organization created")
+        logger.info("Subject suspended")
         logger.info(req.json())
     else:
         logger.error(req.json())

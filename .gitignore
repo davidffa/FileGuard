@@ -17,3 +17,5 @@ venv/
 
 # macOS generated files
 .DS_Store
+
+documents/
