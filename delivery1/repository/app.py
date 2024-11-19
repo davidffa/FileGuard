@@ -272,15 +272,20 @@ def create_subject():
     org_id = g.org_id
 
     #TODO So podemos adicionar um sujeito se tivermos a permissão SUBJECT_NEW
-    
-    subject = Subject(username = username, name = name, email = email, pub_key= pub_key, org_id = org_id)
-    
+     
     organization = Organization.query.get(org_id)
     
     if organization is None:
         res = {"message" : "Organization not found" }
         return json.dumps(res), 404
     
+    subject = next((sub for sub in organization.subjects if sub.username == username), None)
+
+    if subject is not None :
+        res = {"message" : "Subject already exists in this organization" }
+        return json.dumps(res), 404
+    
+    subject = Subject(username = username, name = name, email = email, pub_key= pub_key, org_id = org_id)
     organization.subjects.append(subject)
     db.session.commit()
 
