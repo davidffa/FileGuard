@@ -258,6 +258,34 @@ def get_file(file_handle):
     return "", 404
 
 
+@app.route("/subject/create", methods=["POST"])
+@requires_session
+def create_subject():
+    if request.form is None:
+        res = { "message": "Empty request body" }
+        return json.dumps(res), 400
+
+    username = request.form["username"]
+    name = request.form["name"]
+    email = request.form["email"]
+    pub_key = request.form["pub_key"]
+    org_id = g.org_id
+
+    #TODO So podemos adicionar um sujeito se tivermos a permissão SUBJECT_NEW
+    
+    subject = Subject(username = username, name = name, email = email, pub_key= pub_key, org_id = org_id)
+    
+    organization = Organization.query.get(org_id)
+    
+    if organization is None:
+        res = {"message" : "Organization not found" }
+        return json.dumps(res), 404
+    
+    organization.subjects.append(subject)
+    db.session.commit()
+
+    return "{}", 201
+
 
 if __name__ == "__main__":
     app.run(port=8000, debug=True)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import logging
 import sys
 
@@ -12,9 +13,8 @@ logger.setLevel(logging.INFO)
 
 def main():
     state = parse_env({})
-    positional_args = ["session file", "username", "name", "email", "credentials file"]
+    positional_args = ["session_file", "username", "name", "email", "credentials_file"]
     state = parse_args(state, positional_args)
-    state = state[2:4]
 
     if 'REP_ADDRESS' not in state:
         logger.error("Must define Repository Address")
@@ -24,38 +24,31 @@ def main():
         logger.error("Must set the Repository Public Key")
         sys.exit(-1)
 
+    session_file = state["session_file"]
 
-    
+    with open(session_file, "rb") as f:
+        session = base64.b64encode(f.read())
 
-    credentials_file = state["credentials file"]
+    credentials_file = state["credentials_file"]
+
     with open(credentials_file, "rb") as f:
-        credentials = f.read()
-        salt=credentials[0:16]
-    
-    with open(credentials_file, "r") as f:
         pub_key = f.read()
-        pub_key = pub_key[16:].encode()
+        pub_key = pub_key[16:].decode()
 
-    if not salt:
-        logger.error("Salt not found in credentials file")
-        sys.exit(-1)
+    state["pub_key"] = pub_key
 
-    state["pub key"] = pub_key
+    headers = {
+        "session": session
+    }
 
-    session_file = state["session file"]
-    with open(session_file, "r") as f:
-        session = f.read()
-
-    state["org_name"] = org_name
     body = {
         "username": state["username"],
         "name": state["name"],
         "email": state["email"],
-        "pub key" : state["pub key"],
-        "org_name": state["org_name"]
+        "pub_key" : state["pub_key"]
     }
       
-    req = requests.post(f'http://{state['REP_ADDRESS']}/subject/create', json=body)
+    req = requests.post(f'http://{state["REP_ADDRESS"]}/subject/create', headers=headers, data=body)
 
     if req.status_code == 201:
         logger.info("Subject created")
