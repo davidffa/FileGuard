@@ -7,7 +7,7 @@ services:
       POSTGRES_DB: repository
 
     ports:
-      - "5432:5432"
+      - "$DB_PORT:$DB_PORT"
 
     volumes:
       - db:/var/lib/postgresql/data
@@ -16,8 +16,12 @@ services:
     build:
       context: .
     restart: unless-stopped
+    stop_signal: SIGINT
+    
+    env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg2://postgres:password@database:5432/repository
+      DATABASE_URL: postgresql+psycopg2://$DB_USER:$DB_PASSWORD@database:$DB_PORT/$DB_NAME
+      MASTER_PASSWORD: $MASTER_PASSWORD
 
     ports:
       - "8000:8000"

@@ -1,15 +1,18 @@
 import base64
 import json
 import os
+from argparse import ArgumentParser
 from functools import wraps
 
 from flask import Response, g, jsonify, request
 from src import create_app, db
-from src.crypto import decrypt_aes256_cbc, sha256_digest
+from src.crypto import (decrypt_aes256_cbc, encrypt_aes256_cbc, pbkdf2,
+                        sha256_digest)
 from src.models import Document, Organization, Subject
 from src.util import Session
 
 app = create_app()
+master_key = bytes()
 
 def requires_session(f):
     @wraps(f)
@@ -66,14 +69,23 @@ def add_doc():
         res = { "message": "Please provide a file" }
         return json.dumps(res), 400
 
+    org_id = g.org_id
+    subject_id = g.subject_id
+
     encrypted_file = request.files["file"].read()
     secret_key = request.files["secret_key"].read()
-    iv = request.files["iv"].read()
+    doc_iv = request.files["iv"].read()
 
     file_name = request.form["document_name"]
     file_handle = request.form["file_handle"]
     crypto_alg = request.form["crypto_alg"]
     digest_alg = request.form["digest_alg"]
+
+    existent_doc = Document.query.filter_by(org_id=org_id, name=file_name).first()
+
+    if existent_doc is not None:
+        res = { "message": "A document with that name already exists" }
+        return json.dumps(res), 400
 
     if crypto_alg != "AES256_CBC":
         res = { "message": "Encryption algorithm not supported" }
@@ -83,7 +95,7 @@ def add_doc():
         res = { "message": "Digest algorithm not supported" }
         return json.dumps(res), 400
 
-    decrypted_file = decrypt_aes256_cbc(secret_key, iv, encrypted_file)
+    decrypted_file = decrypt_aes256_cbc(secret_key, doc_iv, encrypted_file)
 
     if file_handle != sha256_digest(decrypted_file):
         res = { "message": "File integrity verification failed" }
@@ -95,18 +107,14 @@ def add_doc():
     with open(f"./documents/{file_handle}.bin", "wb") as f:
         f.write(encrypted_file)
 
-    # Other metadata would be written in the main json
     with open(f"./documents/{file_handle}-metadata.bin", "wb") as f:
-        # TODO: Encrypt this metadata
         data = bytes(json.dumps({ "crypto_alg": "AES256_CBC", "digest_alg": "SHA256" }), "utf8")
         data_len = len(data)
-        f.write(data_len.to_bytes(2, "big"))
-        f.write(data)
-        f.write(secret_key)
-        f.write(iv)
 
-    org_id = g.org_id
-    subject_id = g.subject_id
+        metadata = data_len.to_bytes(2, "big") + data + secret_key + doc_iv
+        metadata_iv = os.urandom(16)
+
+        f.write(metadata_iv + encrypt_aes256_cbc(metadata, master_key, metadata_iv))
 
     doc = Document(name=file_name, creator_id=subject_id, file_handle=file_handle, org_id=org_id)
 
@@ -166,13 +174,13 @@ def get_doc_metadata():
     subject_id = g.subject_id
     doc_name = request.args.get("document_name")
 
-    organization = Organization.query.get(org_id)
+    organization = db.session.get(Organization, org_id)
 
     if organization is None:
         res = { "message": "Organization not found" }
         return json.dumps(res), 404
 
-    document = next((doc for doc in organization.documents if doc.name == doc_name), None)
+    document = Document.query.filter_by(org_id=org_id, name=doc_name).first()
 
     if document is None:
         res = { "message": "Document not found" }
@@ -181,7 +189,11 @@ def get_doc_metadata():
     file_handle = document.file_handle
 
     with open(f"./documents/{file_handle}-metadata.bin", "rb") as f:
-        data = f.read()
+        encrypted_metadata = f.read()
+        metadata_iv = encrypted_metadata[:16]
+        encrypted_metadata = encrypted_metadata[16:]
+
+        data = decrypt_aes256_cbc(master_key, metadata_iv, encrypted_metadata)
 
     data_size = int.from_bytes(data[0:2], "big")
 
@@ -260,4 +272,19 @@ def get_file(file_handle):
 
 
 if __name__ == "__main__":
-    app.run(port=8000, debug=True)
+    parser = ArgumentParser()
+    parser.add_argument("master_password")
+    args = parser.parse_args()
+
+    if os.path.isfile("./salt.bin"):
+        with open("./salt.bin", "rb") as f:
+            salt = f.read()
+    else:
+        salt = os.urandom(16)
+        
+        with open("./salt.bin", "wb") as f:
+            f.write(salt)
+    
+    master_key = pbkdf2(args.master_password, 32, salt)
+
+    app.run(host="0.0.0.0", port=8000, debug=True)
