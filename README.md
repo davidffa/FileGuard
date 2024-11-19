@@ -7,3 +7,36 @@
 - Francisca Silva - 112841
 - Guilherme Amaral - 113207
 
+# Project Specifications (Delivery 1)
+For the first delivery of the project the following methods and strategies where implemented.
+## Repository
+From the server side, persistence of documents, organizations and subjects was implemented using PostgreSQL as a database. The files and metadata are saved on disk.
+Sessions are not persistent, which means, in case of server restart, all previous sessions stop being valid.
+The server master_key is derived from a password asked by the server once it starts (in case of using our docker compose file, the password is pre-defined). This master_key will be used to create the repository public_key, that should be known by each client.
+## Local Commands Implemented 
+```console
+rep_subject_credentials <password> <credentials file>
+rep_decrypt_file <encrypted file> <encryption metadata>
+```
+## Anonymous Commands Implemented
+```console
+rep_create_org <organization> <username> <name> <email> <public key file>
+rep_list_orgs
+rep_create_session <organization> <username> <password> <credentials file> <session file>
+rep_get_file <file handle> [file]
+```
+## Authenticated Commands Implemented
+```console
+rep_list_subjects <session file> [username]
+rep_list_docs <session file> [-s username] [-d nt/ot/et date]
+```
+## Authorized Commands Implemented
+```console
+rep_add_subject <session file> <username> <name> <email> <credentials file>
+rep_suspend_subject <session file> <username>
+rep_activate_subject <session file> <username>
+rep_add_doc <session file> <document name> <file>
+rep_get_doc_metadata <session file> <document name>
+rep_get_doc_file <session file> <document name> [file]
+rep_delete_doc <session file> <document name>
+```
