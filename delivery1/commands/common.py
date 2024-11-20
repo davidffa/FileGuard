@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 from typing import Tuple
 
 from crypto import (compute_hmac, decrypt_aes256_cbc, encrypt_aes256_cbc,
@@ -11,6 +12,13 @@ from crypto import (compute_hmac, decrypt_aes256_cbc, encrypt_aes256_cbc,
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+def validate_date(value):
+    try:
+        return datetime.strptime(value, "%d-%m-%Y")
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid data.The correct format is DD-MM-YYYY.")
+
 
 def parse_env(state):
     if 'REP_ADDRESS' in os.environ:
@@ -26,7 +34,7 @@ def parse_env(state):
                 logger.debug('Loaded REP_PUB_KEY from Environment')
     return state
 
-def parse_args(state, positional_args, optional_args=[]):
+def parse_args(state, positional_args, optional_args=[], args_with_flags=[]):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-k", '--key', nargs=1, help="Path to the key file")
@@ -39,6 +47,12 @@ def parse_args(state, positional_args, optional_args=[]):
     for arg in optional_args:
         parser.add_argument(arg, nargs='?', default=None)
 
+    if "-s" in args_with_flags:
+        parser.add_argument("-s", '--username',type=str, nargs='?', help="Subject username")
+        
+    if "-d" in args_with_flags:
+        parser.add_argument("-d", "--date", metavar=("nt/ot/et", "date"), nargs=2)
+        
     args = parser.parse_args()
     if args.verbose:
         logger.setLevel(logging.DEBUG)
@@ -56,6 +70,22 @@ def parse_args(state, positional_args, optional_args=[]):
     if args.repo:
         state['REP_ADDRESS'] = args.repo[0]
         logger.info('Overriding REP_ADDRESS from command line')
+
+    if "-s" in args_with_flags:
+        if args.username:
+            state['username'] = getattr(args, "username")
+    
+    if "-d" in args_with_flags:
+        if args.date:
+            opt, date = args.date
+
+            if opt not in ["nt", "ot", "et"]:
+                raise argparse.ArgumentTypeError("Invalid date option. Pick one from nt/ot/et")
+
+            validate_date(date)
+
+            state['comparator'] = opt
+            state['date'] = date
 
     for arg in positional_args:
         state[arg] = getattr(args, arg)

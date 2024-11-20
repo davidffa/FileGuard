@@ -311,7 +311,6 @@ def get_subjects():
             status=200
         )
             
-
 @app.route("/document_metadata", methods=['GET'])   
 @requires_session
 def get_doc_metadata():
@@ -497,6 +496,60 @@ def create_subject():
 
     return "", 201
 
+@app.route("/documents/list", methods=["GET"])
+@requires_session
+def list_docs():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
+    org_id = g.org_id
+
+    username = g.json["username"]
+    comparator = g.json["date_opt"]
+    date = g.json["date"]
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    documents = organization.documents
+
+    if username is not None:
+        user = next((sub for sub in organization.subjects if sub.username == username), None)
+
+        if user is None:
+            res = { "message": "User does not exist" }
+            return Response(
+                encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+                content_type="application/octet-stream",
+                status=400
+            )
+
+        documents = list(filter(lambda x: x.creator_id == user.id, documents))
+
+    if date is not None and comparator is not None:
+        date = datetime.strptime(date, "%d-%m-%Y").date()
+
+        if comparator == "nt":
+            documents = list(filter(lambda x: x.create_date.date() > date, documents))
+        elif comparator == "ot":
+            documents = list(filter(lambda x: x.create_date.date() < date, documents))
+        elif comparator == "et":
+            documents = list(filter(lambda x: x.create_date.date() == date, documents))
+
+    res = jsonify(documents)
+
+    return Response(
+        encrypt_body(json.dumps(res.json).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
 
 @app.route("/document/delete", methods=["PUT"])
 @requires_session
