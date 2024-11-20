@@ -26,6 +26,24 @@ To garantee the confidentiality and integrity between client-server, inside and 
  - The client decrypts the server's response content using the first part of the shared secret (after validating the MAC).
  - The client stores the keys and the session_id in the session file, and the server stores them in memory (in a Python dictionary...).
   From now on, all information shared between commands that require a session can be encrypted with the shared secret, using the keys stored by both sides, along with a MAC to garantee integrity and authentication.
+
+## Ciphering of client <-> server communications in sessioned commands
+
+We load the session file and get the session_id, the sequence number, the secret key and mac key.
+In every sessioned request, we send the header `sessionid: SESSION UUID VALUE`.
+In client -> server request we send the body
+```
+IV + encrypted json + sequence number (4 bytes big endian) + MAC(IV+ encrypted json + seq number)
+```
+In server -> client response we send
+```
+IV + encrypted json + MAC(IV + encrypted json)
+```
+
+In every request, the server validates the request body with the MAC. If that verification passes, the server gets the sequence number provided by the client and compares with its own (in the session context stored in the server's memory). If they match, the server continues processing the request, **preventing replay attacks**
+
+After every sessioned request, the client increments its sequence number and updates the session file
+
 ## Local Commands Implemented 
 ```console
 rep_subject_credentials <password> <credentials file>
