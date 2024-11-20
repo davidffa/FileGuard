@@ -12,7 +12,7 @@ For the first delivery of the project the following methods and strategies where
 ## Repository
 From the server side, persistence of documents, organizations and subjects were implemented using PostgreSQL as a database. The files and metadata are saved on disk.
 Sessions are not persistent, which means, in case of server restart, all previous sessions stop being valid.
-The server master_key is derived from a password asked by the server once it starts (in case of using our docker compose file, the password is pre-defined). This master_key will be used to create the repository public_key, that should be known by each client.
+The server master_key is derived from a password asked by the server once it starts (in case of using our docker compose file, the password is pre-defined). This master_key will be used to create the repository public_key, that should be known by each client and will be stored with the name repo_key.pub when the repository is started for the first time. This master_key also will be used to derive a symmetric key, that will be used to encrypt the document's metadata locally.
 ## Security and Integrity of Communications between Client-Server
 To garantee the confidentiality and integrity between client-server, inside and outside a session, we did the following steps when executing the rep_create_session.py command:
  - We start by generating an ephemeral EC key pair on the client side.
