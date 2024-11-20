@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import base64
-import json
 import logging
 import sys
 
@@ -66,10 +65,8 @@ def main():
         secret_key = key[:32]
         mac_key = key[32:]
 
-        logger.info("Session created")
-
         try:
-            response = json.loads(decrypt_body(req.content, secret_key, mac_key))
+            response = decrypt_body(req.content, secret_key, mac_key)
         except Exception as e:
             logger.error(f"An error ocurred when parsing the server response")
             logger.error(e)
@@ -77,11 +74,12 @@ def main():
 
         with open(session_file, "wb") as f:
             json_size = len(response).to_bytes(2, "big")
-            f.write(json_size + json.dumps(response).encode("utf8"))
+            f.write(json_size + response)
             seq = 0
             f.write(seq.to_bytes(4, "big"))
             f.write(secret_key + mac_key)
 
+        logger.info("Session created")
     else:
         logger.error(req.json())
         sys.exit(-1)

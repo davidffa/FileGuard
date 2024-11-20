@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 
-import base64
+import json
 import logging
-import os
 import sys
 
 import requests
-from common import parse_args, parse_env
-from crypto import encrypt_aes256_cbc, sha256_digest
+from common import (decrypt_body, encrypt_body, load_session, parse_args,
+                    parse_env, update_session_sequence)
 
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
@@ -28,8 +27,7 @@ def main():
 
     session_file = state["session_file"]
 
-    with open(session_file, "rb") as f:
-        session = base64.b64encode(f.read())
+    session_id, seq, secret_key, mac_key = load_session(session_file)
 
     username = state["username"]
 
@@ -38,17 +36,21 @@ def main():
     }
       
     headers = {
-        "session": session
+        "sessionid": session_id
     }
 
-    req = requests.put(f'http://{state["REP_ADDRESS"]}/suspend', headers=headers, json=body)
+    body = encrypt_body(json.dumps(body).encode("utf8"), seq, secret_key, mac_key)
+
+    req = requests.put(f'http://{state["REP_ADDRESS"]}/suspend', headers=headers, data=body)
+    update_session_sequence(session_file)
 
     if req.status_code == 201:
         logger.info("Subject suspended")
-        logger.info(req.json())
     else:
-        logger.error(req.json())
-        sys.exit(-1)
+        if req.headers["content-type"] == "application/octet-stream":
+            logger.error(json.loads(decrypt_body(req.content, secret_key, mac_key)))
+        else:
+            logger.error(req.json())
 
 if __name__ == "__main__":
     main()

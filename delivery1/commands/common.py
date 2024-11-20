@@ -1,7 +1,9 @@
 import argparse
+import json
 import logging
 import os
 import sys
+from typing import Tuple
 
 from crypto import (compute_hmac, decrypt_aes256_cbc, encrypt_aes256_cbc,
                     verify_hmac)
@@ -63,9 +65,41 @@ def parse_args(state, positional_args, optional_args=[]):
 
     return state
 
-def encrypt_body(body: bytes, secret_key: bytes, mac_key: bytes) -> bytes:
+def load_session(session_file: str) -> Tuple[str, int, bytes, bytes]:
+    """
+    Loads the session file
+    Returns a tuple with (session_id, sequence number, secret key, mac key)
+    """
+    logger.info("Loading session...")
+
+    with open(session_file, "rb") as f:
+        data = f.read()
+
+    json_size = int.from_bytes(data[:2], "big")
+    json_data = json.loads(data[2:2+json_size])
+    seq = int.from_bytes(data[2+json_size:2+json_size+4], "big")
+    secret_key = data[2+json_size+4:2+json_size+4+32]
+    mac_key = data[2+json_size+4+32:2+json_size+4+64]
+
+    logger.info(f"Session file loaded. Session ID = {json_data['id']} Sequence number = {seq}")
+    
+    return json_data["id"], seq, secret_key, mac_key
+
+def update_session_sequence(session_file: str):
+    with open(session_file, "rb") as f:
+        data = f.read()
+
+    # Increment sequence number
+    seq = int.from_bytes(data[-64-4:-64]) + 1
+
+    new_data = data[:-64-4:] + seq.to_bytes(4, "big") + data[-64:]
+
+    with open(session_file, "wb") as f:
+        f.write(new_data)
+
+def encrypt_body(body: bytes, seq: int, secret_key: bytes, mac_key: bytes) -> bytes:
     iv = os.urandom(16)
-    cipherbody = iv + encrypt_aes256_cbc(body, secret_key, iv)
+    cipherbody = iv + encrypt_aes256_cbc(body, secret_key, iv) + seq.to_bytes(4, "big")
     mac = compute_hmac(cipherbody, mac_key)
 
     return cipherbody + mac

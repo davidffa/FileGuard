@@ -1,8 +1,9 @@
+import uuid
 from datetime import datetime, timedelta
 
 
 class SessionContext:
-    def __init__(self, session_id: str, org_id: str, subject_id: str, secret_key: bytes, mac_key: bytes):
+    def __init__(self, session_id: str, org_id: uuid.UUID, subject_id: uuid.UUID, secret_key: bytes, mac_key: bytes):
         self.id = session_id
         self.org_id = org_id
         self.subject_id = subject_id

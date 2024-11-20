@@ -25,34 +25,41 @@ sessions = {}
 def requires_session(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if "session" not in request.headers:
-            res = { "message": "Please provide a session header" }
+        if "sessionid" not in request.headers:
+            res = { "message": "Please provide a session_id header" }
             return json.dumps(res), 401
 
-        session_header = json.loads(base64.b64decode(request.headers["session"]))
+        session_id = request.headers["sessionid"]
 
-        if session_header["session_id"] not in sessions:
+        if session_id not in sessions:
             res = { "message": "Invalid session" }
             return json.dumps(res), 400
 
-        session = sessions[session_header["session_id"]]
+        session = sessions[session_id]
 
         if datetime.now() > session.expires_at:
-            del sessions[session_header["session_id"]]
+            del sessions[session_id]
             res = { "message": "Session expired" }
             return json.dumps(res), 400
 
         g.session = session
+        g.org_id = session.org_id
+        g.subject_id = session.subject_id
 
         data = request.data
 
-        # Must at least have the iv + seq + MAC
-        if len(data) < 16 + 4 + 32:
+        if len(data) == 0:
+            if "data" not in request.files:
+                res = { "message": "Message is too short" }
+                return json.dumps(res), 400
+
+            data = request.files["data"].read()
+
+        # Must at least have the seq + MAC
+        if len(data) < 4 + 32:
             res = { "message": "Message is too short" }
             return json.dumps(res), 400
 
-        iv = data[:16]
-        ciphertext = data[16:-32 - 4]
         seq = int.from_bytes(data[-32 - 4:-32], "big")
         mac = data[-32:]
 
@@ -60,24 +67,30 @@ def requires_session(f):
             res = { "message": "Request body integrity check failed" }
             return json.dumps(res), 400
 
-        plaintext = decrypt_aes256_cbc(session.secret_key, iv, ciphertext)
-
         if seq != session.seq:
             res = { "message": "Sequence number mismatch" }
             return json.dumps(res), 400
 
+        # If we actually have a request body
+        if len(data) > 32 + 4:
+            iv = data[:16]
+            ciphertext = data[16:-32 - 4]
+            plaintext = decrypt_aes256_cbc(session.secret_key, iv, ciphertext)
+            g.json = json.loads(plaintext)
+
         session.seq += 1
-        # TODO: Upload file, as it uses multipart-form, requires special treatment here
-        g.json = json.loads(plaintext)
 
         return f(*args, **kwargs)
 
     return decorated
 
-def encrypt_body(body: bytes, secret_key: bytes) -> bytes:
+def encrypt_body(body: bytes, secret_key: bytes, mac_key: bytes) -> bytes:
     iv = os.urandom(16)
 
-    return iv + encrypt_aes256_cbc(body, secret_key, iv)
+    data = iv + encrypt_aes256_cbc(body, secret_key, iv)
+    mac = compute_hmac(data, mac_key)
+
+    return data + mac
 
 @app.route("/organization/list")
 def org_list():
@@ -114,41 +127,76 @@ def create_org():
 @app.route("/document", methods=["POST"])
 @requires_session
 def add_doc():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
     if "file" not in request.files:
         res = { "message": "Please provide a file" }
-        return json.dumps(res), 400
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
 
     org_id = g.org_id
     subject_id = g.subject_id
 
     encrypted_file = request.files["file"].read()
-    secret_key = request.files["secret_key"].read()
+    cipher_file_secret_key = request.files["secret_key"].read()
     doc_iv = request.files["iv"].read()
 
-    file_name = request.form["document_name"]
-    file_handle = request.form["file_handle"]
-    crypto_alg = request.form["crypto_alg"]
-    digest_alg = request.form["digest_alg"]
+    file_name = g.json["document_name"]
+    file_handle = g.json["file_handle"]
+    crypto_alg = g.json["crypto_alg"]
+    digest_alg = g.json["digest_alg"]
 
     existent_doc = Document.query.filter_by(org_id=org_id, name=file_name).first()
 
     if existent_doc is not None:
         res = { "message": "A document with that name already exists" }
-        return json.dumps(res), 400
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
 
     if crypto_alg != "AES256_CBC":
         res = { "message": "Encryption algorithm not supported" }
-        return json.dumps(res), 400
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
 
     if digest_alg != "SHA256":
         res = { "message": "Digest algorithm not supported" }
-        return json.dumps(res), 400
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
 
-    decrypted_file = decrypt_aes256_cbc(secret_key, doc_iv, encrypted_file)
+    mac_file_sk = cipher_file_secret_key[-32:]
+
+    if not verify_hmac(cipher_file_secret_key[:-32], mac_file_sk, mac_key):
+        res = { "message": "MAC verification failed for the file secret key" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    file_secret_key = decrypt_aes256_cbc(secret_key, cipher_file_secret_key[:16], cipher_file_secret_key[16:-36])
+
+    decrypted_file = decrypt_aes256_cbc(file_secret_key, doc_iv, encrypted_file)
 
     if file_handle != sha256_digest(decrypted_file):
         res = { "message": "File integrity verification failed" }
-        return json.dumps(res), 400
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
 
     if not os.path.exists("./documents"):
         os.makedirs("./documents")
@@ -160,7 +208,7 @@ def add_doc():
         data = bytes(json.dumps({ "crypto_alg": "AES256_CBC", "digest_alg": "SHA256" }), "utf8")
         data_len = len(data)
 
-        metadata = data_len.to_bytes(2, "big") + data + secret_key + doc_iv
+        metadata = data_len.to_bytes(2, "big") + data + file_secret_key + doc_iv
         metadata_iv = os.urandom(16)
 
         f.write(metadata_iv + encrypt_aes256_cbc(metadata, master_key, metadata_iv))
@@ -170,11 +218,17 @@ def add_doc():
     db.session.add(doc)
     db.session.commit()
 
-    return jsonify(doc), 201
+    res = jsonify(doc)
+
+    return Response(
+        encrypt_body(json.dumps(res.json).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=201
+    )
+
 
 @app.route("/organization/create/session", methods=["POST"])
 def create_session():
-    
     if request.json is None:
         res = { "message": "Empty request body" }
         return json.dumps(res), 400
@@ -212,8 +266,8 @@ def create_session():
     session_id = uuid.uuid4().hex
     session = SessionContext(
         session_id,
-        organization.id.hex,
-        subject.id.hex,
+        organization.id,
+        subject.id,
         secret_key=keys[:32],
         mac_key=keys[32:]
     )
@@ -221,11 +275,10 @@ def create_session():
     sessions[session_id] = session
     data = bytes(json.dumps(session.get_info()), "utf8")
 
-    cipherbody = encrypt_body(data, keys[:32])
-    mac = compute_hmac(cipherbody, keys[32:])
+    cipherbody = encrypt_body(data, keys[:32], keys[32:])
 
     return Response(
-        cipherbody + mac,
+        cipherbody, 
         mimetype="application/octet-stream",
         status=201
     )
@@ -233,39 +286,61 @@ def create_session():
 @app.route("/organization/subjects", methods=["GET"])
 @requires_session
 def get_subjects():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
     org_id = g.org_id
 
     organization = Organization.query.get(org_id)
     data= {}
     if organization is None:
         res = { "message": "Organization not found" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
     else:
         for subject in organization.subjects:
             data[subject.username] = {
                 "suspended": subject.suspended
             }
-        return json.dumps(data), 200
+        return Response(
+            encrypt_body(json.dumps(data).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=200
+        )
             
 
 @app.route("/document_metadata", methods=['GET'])   
 @requires_session
 def get_doc_metadata():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
     org_id = g.org_id
     subject_id = g.subject_id
-    doc_name = request.args.get("document_name")
+    doc_name = g.json["document_name"]
 
     organization = db.session.get(Organization, org_id)
 
     if organization is None:
         res = { "message": "Organization not found" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
 
     document = Document.query.filter_by(org_id=org_id, name=doc_name).first()
 
     if document is None or document.file_handle is None:
         res = { "message": "Document not found" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
 
     file_handle = document.file_handle
 
@@ -291,53 +366,84 @@ def get_doc_metadata():
     new_size = len(new_data).to_bytes(2, "big")
 
     return Response(
-        new_size + new_data + data[2+data_size:],
-        mimetype="application/octet-stream",
+        encrypt_body(new_size + new_data + data[2+data_size:], secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
     )
 
 @app.route("/suspend", methods=["PUT"])
 @requires_session
 def put_suspension():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
     org_id = g.org_id
     
-    subject_name= request.json["username"]
+    subject_name= g.json["username"]
 
     organization = Organization.query.get(org_id)
     
     if organization is None:
         res = { "message": "Organization not found" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
     
     for subject in organization.subjects:
         if subject.username == subject_name:
             subject.suspended = True
             db.session.commit()
             res= { "message": "Subject suspended" }
-            return json.dumps(res), 201
+            return Response(
+                encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+                content_type="application/octet-stream",
+                status=201
+            )
         
     res = { "message": "Subject not found" }
-    return json.dumps(res), 404
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=404
+    )
 
 @app.route("/activate", methods=["PUT"])
 @requires_session
 def put_activation():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    
     org_id = g.org_id
 
-    subject_name = request.json["username"]
+    subject_name = g.json["username"]
 
     organization = Organization.query.get(org_id)
 
     if organization is None:
         res = { "message": "Organization not found" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
     for subject in organization.subjects:   
         if subject.username == subject_name:
             subject.suspended = False
             db.session.commit()
             res= { "message": "Subject activated" }
-            return json.dumps(res), 201
+            return Response(
+                encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+                content_type="application/octet-stream",
+                status=201
+            )
     res = { "message": "Subject not found" }
-    return json.dumps(res), 404
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=404
+    )
 
 @app.route('/files/<file_handle>', methods=["GET"])
 def get_file(file_handle):
@@ -354,14 +460,13 @@ def get_file(file_handle):
 @app.route("/subject/create", methods=["POST"])
 @requires_session
 def create_subject():
-    if request.form is None:
-        res = { "message": "Empty request body" }
-        return json.dumps(res), 400
-
-    username = request.form["username"]
-    name = request.form["name"]
-    email = request.form["email"]
-    pub_key = request.form["pub_key"]
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    
+    username = g.json["username"]
+    name = g.json["name"]
+    email = g.json["email"]
+    pub_key = g.json["pub_key"]
     org_id = g.org_id
 
     #TODO So podemos adicionar um sujeito se tivermos a permissão SUBJECT_NEW
@@ -370,35 +475,49 @@ def create_subject():
     
     if organization is None:
         res = {"message" : "Organization not found" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
     
     subject = next((sub for sub in organization.subjects if sub.username == username), None)
 
     if subject is not None :
         res = {"message" : "Subject already exists in this organization" }
-        return json.dumps(res), 404
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
     
     subject = Subject(username = username, name = name, email = email, pub_key= pub_key, org_id = org_id)
     organization.subjects.append(subject)
     db.session.commit()
 
-    return "{}", 201
+    return "", 201
 
 
 @app.route("/document/delete", methods=["PUT"])
 @requires_session
 def delete_doc():
     #TODO This commands requires a DOC_DELETE permission.
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
     
     org_id = g.org_id
     subject_id = g.subject_id
 
-    document_name = request.form["document_name"]
+    document_name = g.json["document_name"]
     
     document = Document.query.filter_by(org_id=org_id, name=document_name).first()
-    if document is None:
-        res = { "message": "A document with that name doesn't exists" }
-        return json.dumps(res), 400
+    if document is None or document.file_handle is None:
+        res = { "message": "A document with that name doesn't exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
 
     file_handle = document.file_handle
     with open(f"./documents/{file_handle}-metadata.bin", "rb") as f:
@@ -422,9 +541,10 @@ def delete_doc():
     db.session.commit()
 
     return Response(
-        new_size + new_data + data[2+data_size:],
-        mimetype="application/octet-stream",
-    ) 
+        encrypt_body(new_size + new_data + data[2+data_size:], secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
 
 if __name__ == "__main__":
     parser = ArgumentParser()

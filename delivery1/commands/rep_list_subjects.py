@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
+import json
 import logging
 import sys
+
 import requests
-import base64
-from common import parse_args, parse_env
-from crypto import encrypt_aes256_cbc, sha256_digest
+from common import (decrypt_body, load_session, parse_args, parse_env,
+                    update_session_sequence)
+from crypto import compute_hmac
 
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
@@ -29,29 +31,30 @@ def main():
     session_file = state["session_file"]
     subject = state["username"]
     
-
-    with open(session_file, "rb") as f:
-        session = base64.b64encode(f.read())
+    session_id, seq, secret_key, mac_key = load_session(session_file)
 
     headers = {
-        "session": session
+        "sessionid": session_id
     }
 
+    body = seq.to_bytes(4, "big") + compute_hmac(seq.to_bytes(4, "big"), mac_key)
       
-    req = requests.get(f'http://{state["REP_ADDRESS"]}/organization/subjects', headers=headers)
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/organization/subjects', headers=headers, data=body)
+    update_session_sequence(session_file)
 
     if req.status_code == 200:
-        
-        data= req.json()
+        data = json.loads(decrypt_body(req.content, secret_key, mac_key))
         if subject is not None and subject in data:
             logger.info(f"{subject}: {data[subject]}")
         else:
             logger.info(f"Subjects list on current Organization:")
             for subject in data:
                 logger.info(f"{subject}: {data[subject]}")
-        
     else:
-        logger.error(req.json())
+        if req.headers["content-type"] == "application/octet-stream":
+            logger.error(decrypt_body(req.content, secret_key, mac_key))
+        else:
+            logger.error(req.json())
         sys.exit(-1)
 
 if __name__ == "__main__":

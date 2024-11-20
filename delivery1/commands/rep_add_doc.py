@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
-import base64
+import json
 import logging
 import os
 import sys
 
 import requests
-from common import parse_args, parse_env
+from common import (decrypt_body, encrypt_body, load_session, parse_args,
+                    parse_env, update_session_sequence)
 from crypto import encrypt_aes256_cbc, sha256_digest
 
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
@@ -28,8 +29,7 @@ def main():
 
     session_file = state["session_file"]
 
-    with open(session_file, "rb") as f:
-        session = base64.b64encode(f.read())
+    session_id, seq, secret_key, mac_key = load_session(session_file)
 
     file_path = state["file"]
 
@@ -42,10 +42,10 @@ def main():
 
     file_handle = sha256_digest(plaintext)
 
-    secret_key = os.urandom(32)
+    file_secret_key = os.urandom(32)
     iv = os.urandom(16)
 
-    ciphertext = encrypt_aes256_cbc(plaintext, secret_key, iv)
+    cipheredfile = encrypt_aes256_cbc(plaintext, file_secret_key, iv)
 
     body = {
         "document_name": state["document_name"],
@@ -55,16 +55,24 @@ def main():
     }
       
     headers = {
-        "session": session
+        "sessionid": session_id
     }
 
-    req = requests.post(f'http://{state["REP_ADDRESS"]}/document', headers=headers, data=body, files=dict(file=ciphertext, secret_key=secret_key, iv=iv))
+    cipherbody = encrypt_body(json.dumps(body).encode("utf8"), seq, secret_key, mac_key)
+    cipher_file_sk = encrypt_body(file_secret_key, seq, secret_key, mac_key)
+
+    req = requests.post(f'http://{state["REP_ADDRESS"]}/document', headers=headers, files=dict(data=cipherbody, file=cipheredfile, secret_key=cipher_file_sk, iv=iv))
+
+    update_session_sequence(session_file)
 
     if req.status_code == 201:
         logger.info("Document created")
-        logger.info(req.json())
     else:
-        logger.error(req.json())
+        if req.headers["content-type"] == "application/octet-stream":
+            res = json.loads(decrypt_body(req.content, secret_key, mac_key))
+            logger.error(res)
+        else:
+            logger.error(req.json())
         sys.exit(-1)
 
 if __name__ == "__main__":
