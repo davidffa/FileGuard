@@ -10,7 +10,7 @@
 # Project Specifications (Delivery 1)
 For the first delivery of the project the following methods and strategies where implemented.
 ## Repository
-From the server side, persistence of documents, organizations and subjects was implemented using PostgreSQL as a database. The files and metadata are saved on disk.
+From the server side, persistence of documents, organizations and subjects were implemented using PostgreSQL as a database. The files and metadata are saved on disk.
 Sessions are not persistent, which means, in case of server restart, all previous sessions stop being valid.
 The server master_key is derived from a password asked by the server once it starts (in case of using our docker compose file, the password is pre-defined). This master_key will be used to create the repository public_key, that should be known by each client.
 ## Security and Integrity of Communications between Client-Server
@@ -43,6 +43,12 @@ IV + encrypted json + MAC(IV + encrypted json)
 In every request, the server validates the request body with the MAC. If that verification passes, the server gets the sequence number provided by the client and compares with its own (in the session context stored in the server's memory). If they match, the server continues processing the request, **preventing replay attacks**
 
 After every sessioned request, the client increments its sequence number and updates the session file
+
+## Session file
+The current session file structure is:
+```
+| json size (2 bytes big endian) | json with { "session_id": "uuid", "expires_at": "timestamp", } | sequence number (4 bytes big endian) | 32 bytes secret key for encryption | 32 bytes secret key for MAC calculation |
+```
 
 ## Local Commands Implemented 
 ```console
