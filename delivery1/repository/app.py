@@ -182,7 +182,7 @@ def get_doc_metadata():
 
     document = Document.query.filter_by(org_id=org_id, name=doc_name).first()
 
-    if document is None:
+    if document is None or document.file_handle is None:
         res = { "message": "Document not found" }
         return json.dumps(res), 404
 
@@ -303,6 +303,47 @@ def create_subject():
 
     return "{}", 201
 
+
+@app.route("/document/delete", methods=["PUT"])
+@requires_session
+def delete_doc():
+    #TODO This commands requires a DOC_DELETE permission.
+    
+    org_id = g.org_id
+    subject_id = g.subject_id
+
+    document_name = request.form["document_name"]
+    
+    document = Document.query.filter_by(org_id=org_id, name=document_name).first()
+    if document is None:
+        res = { "message": "A document with that name doesn't exists" }
+        return json.dumps(res), 400
+
+    file_handle = document.file_handle
+    with open(f"./documents/{file_handle}-metadata.bin", "rb") as f:
+        encrypted_metadata = f.read()
+        metadata_iv = encrypted_metadata[:16]
+        encrypted_metadata = encrypted_metadata[16:]
+
+        data = decrypt_aes256_cbc(master_key, metadata_iv, encrypted_metadata)
+
+    data_size = int.from_bytes(data[0:2], "big")
+
+    json_data = json.loads(data[2:data_size+2])
+
+    json_data["file_handle"] = file_handle
+    new_data = json.dumps(json_data).encode("utf8")
+    new_size = len(new_data).to_bytes(2, "big")
+
+    document.file_handle = None  
+    document.deleter = subject_id  
+
+    db.session.commit()
+
+    return Response(
+        new_size + new_data + data[2+data_size:],
+        mimetype="application/octet-stream",
+    ) 
 
 if __name__ == "__main__":
     parser = ArgumentParser()

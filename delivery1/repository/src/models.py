@@ -56,7 +56,7 @@ class Document(db.Model):
     document_handle = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(), nullable=False)
     create_date = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.now)
-    file_handle = db.Column(db.String(), nullable=False)
+    file_handle = db.Column(db.String(), nullable=True)
     # acl = ??
     deleter = db.Column(db.String())
 
