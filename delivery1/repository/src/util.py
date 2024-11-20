@@ -1,17 +1,20 @@
-import uuid
+from datetime import datetime, timedelta
 
 
-class Session:
-    def __init__(self, org_id, subject_id):
+class SessionContext:
+    def __init__(self, session_id: str, org_id: str, subject_id: str, secret_key: bytes, mac_key: bytes):
+        self.id = session_id
         self.org_id = org_id
         self.subject_id = subject_id
-        self.id = uuid.uuid4()
-        self.lifetime = 3600
+        self.expires_at = datetime.now() + timedelta(hours=1)
+        self.seq = 0
+
+        self.secret_key = secret_key
+        self.mac_key = mac_key
 
     def get_info(self):
         info = {
-            "org_id": self.org_id,
-            "subject_id": self.subject_id,
-            "lifetime": self.lifetime
+            "id": self.id,
+            "expires_at": str(self.expires_at)
         }
         return info

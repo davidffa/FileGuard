@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 
+import base64
+import json
 import logging
 import sys
-import json
 
 import requests
-from common import parse_args, parse_env
-
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from common import decrypt_body, parse_args, parse_env
+from crypto import (derive_ec_priv_key, ecdh_shared_key, generate_ec_keypair,
+                    load_pub_key, serialize_pub_key, sign_ec_dsa)
 
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
@@ -36,28 +35,52 @@ def main():
         credentials = f.read()
         salt=credentials[0:16]
     
-    with open(credentials_file, "r") as f:
-        real_pub_key = f.read()
-        real_pub_key = real_pub_key[16:].encode()
-
-    print(salt)
-    print(real_pub_key)
-
     if not salt:
         logger.error("Salt not found in credentials file")
         sys.exit(-1)
 
+    priv_key = derive_ec_priv_key(password, salt)
+
+    ephemeral_priv_key, ephemeral_pub_key = generate_ec_keypair()
+
+    serialized_pub_key = serialize_pub_key(ephemeral_pub_key)
+
     body = {
         "organization": state["organization"],
         "username": state["username"],
+        "ephemeral_pub_key": serialized_pub_key.decode("utf8"),
     }
+
+    signature = sign_ec_dsa(priv_key, bytes(state["organization"], "utf8") + bytes(state["username"], "utf8") + serialized_pub_key)
+
+    body["signature"] = base64.b64encode(signature).decode("utf8")
+
     req = requests.post(f'http://{state["REP_ADDRESS"]}/organization/create/session', json=body)
 
     if req.status_code == 201:
+        server_pub_key = load_pub_key(state["REP_PUB_KEY"].encode("utf8"))
+
+        # Key size of 64 (32 for symmetric cryptography and 32 for MAC encryption)
+        key = ecdh_shared_key(ephemeral_priv_key, server_pub_key, 64) 
+
+        secret_key = key[:32]
+        mac_key = key[32:]
+
         logger.info("Session created")
-        logger.info(req.json())
-        with open(session_file, "w") as f:
-            f.write(json.dumps(req.json()))
+
+        try:
+            response = json.loads(decrypt_body(req.content, secret_key, mac_key))
+        except Exception as e:
+            logger.error(f"An error ocurred when parsing the server response")
+            logger.error(e)
+            sys.exit(1)
+
+        with open(session_file, "wb") as f:
+            json_size = len(response).to_bytes(2, "big")
+            f.write(json_size + json.dumps(response).encode("utf8"))
+            seq = 0
+            f.write(seq.to_bytes(4, "big"))
+            f.write(secret_key + mac_key)
 
     else:
         logger.error(req.json())

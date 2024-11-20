@@ -1,18 +1,26 @@
 import base64
 import json
 import os
+import uuid
 from argparse import ArgumentParser
+from datetime import datetime
 from functools import wraps
 
+from cryptography.hazmat.primitives.asymmetric import ec
 from flask import Response, g, jsonify, request
 from src import create_app, db
-from src.crypto import (decrypt_aes256_cbc, encrypt_aes256_cbc, pbkdf2,
-                        sha256_digest)
+from src.crypto import (compute_hmac, decrypt_aes256_cbc, ecdh_shared_key,
+                        encrypt_aes256_cbc, load_pub_key, pbkdf2,
+                        serialize_pub_key, sha256_digest, verify_ecdsa,
+                        verify_hmac)
 from src.models import Document, Organization, Subject
-from src.util import Session
+from src.util import SessionContext
 
 app = create_app()
 master_key = bytes()
+private_key = None
+
+sessions = {}
 
 def requires_session(f):
     @wraps(f)
@@ -21,14 +29,55 @@ def requires_session(f):
             res = { "message": "Please provide a session header" }
             return json.dumps(res), 401
 
-        session = json.loads(base64.b64decode(request.headers["session"]))
+        session_header = json.loads(base64.b64decode(request.headers["session"]))
 
-        g.org_id = session["org_id"]
-        g.subject_id = session["subject_id"]
+        if session_header["session_id"] not in sessions:
+            res = { "message": "Invalid session" }
+            return json.dumps(res), 400
+
+        session = sessions[session_header["session_id"]]
+
+        if datetime.now() > session.expires_at:
+            del sessions[session_header["session_id"]]
+            res = { "message": "Session expired" }
+            return json.dumps(res), 400
+
+        g.session = session
+
+        data = request.data
+
+        # Must at least have the iv + seq + MAC
+        if len(data) < 16 + 4 + 32:
+            res = { "message": "Message is too short" }
+            return json.dumps(res), 400
+
+        iv = data[:16]
+        ciphertext = data[16:-32 - 4]
+        seq = int.from_bytes(data[-32 - 4:-32], "big")
+        mac = data[-32:]
+
+        if not verify_hmac(data[:-32], mac, session.mac_key):
+            res = { "message": "Request body integrity check failed" }
+            return json.dumps(res), 400
+
+        plaintext = decrypt_aes256_cbc(session.secret_key, iv, ciphertext)
+
+        if seq != session.seq:
+            res = { "message": "Sequence number mismatch" }
+            return json.dumps(res), 400
+
+        session.seq += 1
+        # TODO: Upload file, as it uses multipart-form, requires special treatment here
+        g.json = json.loads(plaintext)
 
         return f(*args, **kwargs)
 
     return decorated
+
+def encrypt_body(body: bytes, secret_key: bytes) -> bytes:
+    iv = os.urandom(16)
+
+    return iv + encrypt_aes256_cbc(body, secret_key, iv)
 
 @app.route("/organization/list")
 def org_list():
@@ -144,10 +193,42 @@ def create_session():
     if subject is None:
         res = { "message": "Subject does not exist" }
         return json.dumps(res), 400
-    
-    session = Session(str(organization.id), str(subject.id))
-    data = session.get_info()
-    return json.dumps(data), 201
+
+    serialized_pub_key = request.json["ephemeral_pub_key"].encode("utf8")
+    ephemeral_pub_key = load_pub_key(serialized_pub_key)
+    subject_pub_key = load_pub_key(subject.pub_key.encode("utf8"))
+    signature = base64.b64decode(request.json["signature"])
+
+    if not verify_ecdsa(subject_pub_key, bytes(org_name, "utf8") + bytes(username, "utf8") + serialized_pub_key, signature):
+        res = { "message": "Could not verify the signature" }
+        return json.dumps(res), 400
+
+    if private_key is None:
+        print("Something went wrong... We dont have our private key!")
+        return "{}", 500
+
+    keys = ecdh_shared_key(private_key, ephemeral_pub_key, 64)
+
+    session_id = uuid.uuid4().hex
+    session = SessionContext(
+        session_id,
+        organization.id.hex,
+        subject.id.hex,
+        secret_key=keys[:32],
+        mac_key=keys[32:]
+    )
+
+    sessions[session_id] = session
+    data = bytes(json.dumps(session.get_info()), "utf8")
+
+    cipherbody = encrypt_body(data, keys[:32])
+    mac = compute_hmac(cipherbody, keys[32:])
+
+    return Response(
+        cipherbody + mac,
+        mimetype="application/octet-stream",
+        status=201
+    )
 
 @app.route("/organization/subjects", methods=["GET"])
 @requires_session
@@ -360,5 +441,10 @@ if __name__ == "__main__":
             f.write(salt)
     
     master_key = pbkdf2(args.master_password, 32, salt)
+    private_key = ec.derive_private_key(int.from_bytes(master_key, "big"), ec.SECP256R1())
+    public_key = serialize_pub_key(private_key.public_key())
+
+    with open("repo_key.pub", "wb") as f:
+        f.write(public_key)
 
     app.run(host="0.0.0.0", port=8000, debug=True)

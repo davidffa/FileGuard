@@ -1,5 +1,8 @@
-from cryptography.hazmat.primitives import hashes
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, hmac, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.padding import PKCS7
 
@@ -41,3 +44,52 @@ def sha256_digest(data: bytes) -> str:
     digest.update(data)
 
     return digest.finalize().hex()
+
+def serialize_pub_key(pub_key: ec.EllipticCurvePublicKey) -> bytes:
+    return pub_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+def verify_ecdsa(pub_key: ec.EllipticCurvePublicKey, data: bytes, signature: bytes) -> bool:
+    try:
+        pub_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
+        return True
+    except InvalidSignature:
+        return False
+
+def load_pub_key(pub_key: bytes) -> ec.EllipticCurvePublicKey:
+    key = serialization.load_pem_public_key(pub_key)
+
+    if not isinstance(key, ec.EllipticCurvePublicKey):
+        raise Exception("Pub key must be EC public key type")
+
+    return key
+
+def ecdh_shared_key(priv_key: ec.EllipticCurvePrivateKey, pub_key: ec.EllipticCurvePublicKey, key_size: int) -> bytes:
+    shared_key = priv_key.exchange(ec.ECDH(), pub_key)
+
+    derived_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=key_size,
+        salt=None,
+        info=b'secret keys'
+    ).derive(shared_key)
+
+    return derived_key
+
+def compute_hmac(data: bytes, mac_key: bytes) -> bytes:
+    h = hmac.HMAC(mac_key, hashes.SHA256())
+    h.update(data)
+
+    return h.finalize()
+
+def verify_hmac(data: bytes, mac: bytes, mac_key: bytes) -> bool:
+    h = hmac.HMAC(mac_key, hashes.SHA256())
+    h.update(data)
+
+    try:
+        h.verify(mac)
+        return True
+    except InvalidSignature:
+        return False

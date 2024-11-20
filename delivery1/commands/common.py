@@ -3,6 +3,9 @@ import logging
 import os
 import sys
 
+from crypto import (compute_hmac, decrypt_aes256_cbc, encrypt_aes256_cbc,
+                    verify_hmac)
+
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -59,3 +62,23 @@ def parse_args(state, positional_args, optional_args=[]):
         state[arg] = getattr(args, arg)
 
     return state
+
+def encrypt_body(body: bytes, secret_key: bytes, mac_key: bytes) -> bytes:
+    iv = os.urandom(16)
+    cipherbody = iv + encrypt_aes256_cbc(body, secret_key, iv)
+    mac = compute_hmac(cipherbody, mac_key)
+
+    return cipherbody + mac
+
+def decrypt_body(data: bytes, secret_key: bytes, mac_key: bytes) -> bytes:
+    if len(data) < 16 + 32:
+        raise Exception("Message is too short")
+
+    iv = data[:16]
+    cipherbody = data[16:-32]
+    mac = data[-32:]
+
+    if not verify_hmac(iv + cipherbody, mac, mac_key):
+        raise Exception("Integrity verification failed")
+
+    return decrypt_aes256_cbc(secret_key, iv, cipherbody)
