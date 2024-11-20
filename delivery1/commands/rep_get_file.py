@@ -28,7 +28,7 @@ def main():
     file = state["file"]
 
 
-    req = requests.get(f'http://{state['REP_ADDRESS']}/files/{file_handle}')
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/files/{file_handle}')
 
     if req.status_code == 200:
         logger.info("File given with success")

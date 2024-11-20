@@ -90,7 +90,7 @@ def update_session_sequence(session_file: str):
         data = f.read()
 
     # Increment sequence number
-    seq = int.from_bytes(data[-64-4:-64]) + 1
+    seq = int.from_bytes(data[-64-4:-64], "big") + 1
 
     new_data = data[:-64-4:] + seq.to_bytes(4, "big") + data[-64:]
 
