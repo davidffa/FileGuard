@@ -22,3 +22,5 @@ documents/
 salt.bin
 session.bin
 credentials.bin
+*.pub
+*.bin
