@@ -60,6 +60,13 @@ def generate_ec_keypair() -> Tuple[ec.EllipticCurvePrivateKey, ec.EllipticCurveP
 def sign_ec_dsa(priv_key: ec.EllipticCurvePrivateKey, data: bytes) -> bytes:
     return priv_key.sign(data, ec.ECDSA(hashes.SHA256()))
 
+def verify_ecdsa(pub_key: ec.EllipticCurvePublicKey, data: bytes, signature: bytes) -> bool:
+    try:
+        pub_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
+        return True
+    except InvalidSignature:
+        return False
+
 def serialize_pub_key(pub_key: ec.EllipticCurvePublicKey) -> bytes:
     return pub_key.public_bytes(
         encoding=serialization.Encoding.PEM,

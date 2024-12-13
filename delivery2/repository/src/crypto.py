@@ -51,6 +51,9 @@ def serialize_pub_key(pub_key: ec.EllipticCurvePublicKey) -> bytes:
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
 
+def sign_ecdsa(priv_key: ec.EllipticCurvePrivateKey, data: bytes) -> bytes:
+    return priv_key.sign(data, ec.ECDSA(hashes.SHA256()))
+
 def verify_ecdsa(pub_key: ec.EllipticCurvePublicKey, data: bytes, signature: bytes) -> bool:
     try:
         pub_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))

@@ -11,8 +11,8 @@ from flask import Response, g, jsonify, request
 from src import create_app, db
 from src.crypto import (compute_hmac, decrypt_aes256_cbc, ecdh_shared_key,
                         encrypt_aes256_cbc, load_pub_key, pbkdf2,
-                        serialize_pub_key, sha256_digest, verify_ecdsa,
-                        verify_hmac)
+                        serialize_pub_key, sha256_digest, sign_ecdsa,
+                        verify_ecdsa, verify_hmac)
 from src.models import Document, Organization, Subject
 from src.util import SessionContext
 
@@ -98,21 +98,38 @@ def org_list():
 
 @app.route("/organization/create", methods=["POST"])
 def create_org():
-    if request.json is None:
-        res = { "message": "Empty request body" }
-        return json.dumps(res), 400
+    if private_key is None:
+        print("Something went wrong... We dont have our private key!")
+        return "{}", 500
 
-    existing_org = Organization.query.filter_by(name=request.json["organization"]).first()
+    data = request.data
+
+    key_size = int.from_bytes(data[:2], "big")
+
+    ephemeral_pub_key = load_pub_key(data[2:2+key_size])
+    secret_key = ecdh_shared_key(private_key, ephemeral_pub_key, 32)
+    iv = data[2+key_size:2+key_size+16]
+    ciphertext = data[2+key_size+16:]
+
+    body = json.loads(decrypt_aes256_cbc(secret_key, iv, ciphertext))
+
+    existing_org = Organization.query.filter_by(name=body["organization"]).first()
 
     if existing_org is not None:
         res = { "message": "Organization already exists" }
-        return json.dumps(res), 400
+        iv = os.urandom(16)
 
-    org_name = request.json["organization"]
-    username = request.json["username"]
-    name = request.json["name"]
-    email = request.json["email"]
-    pub_key = request.json["pub_key"]
+        return Response(
+            iv + encrypt_aes256_cbc(json.dumps(res).encode("utf8"), secret_key, iv),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    org_name = body["organization"]
+    username = body["username"]
+    name = body["name"]
+    email = body["email"]
+    pub_key = body["pub_key"]
 
     org = Organization(name=org_name)
     db.session.add(org)
@@ -122,7 +139,13 @@ def create_org():
     db.session.add(subject)
     db.session.commit()
 
-    return "{}", 201
+    signature = sign_ecdsa(private_key, json.dumps(body).encode("utf8"))
+
+    return Response(
+        signature,
+        content_type="application/octet-stream",
+        status=201
+    )
 
 @app.route("/document", methods=["POST"])
 @requires_session
