@@ -9,12 +9,9 @@ from functools import wraps
 from cryptography.hazmat.primitives.asymmetric import ec
 from flask import Response, g, jsonify, request
 from src import create_app, db
-from src.crypto import (compute_hmac, decrypt_aes256_cbc, ecdh_shared_key,
-                        encrypt_aes256_cbc, load_pub_key, pbkdf2,
-                        serialize_pub_key, sha256_digest, sign_ecdsa,
-                        verify_ecdsa, verify_hmac)
-from src.models import Document, Organization, Subject
-from src.util import SessionContext
+from src.crypto import *
+from src.models import Document, Organization, Role, Subject
+from src.util import *
 
 app = create_app()
 master_key = bytes()
@@ -135,7 +132,12 @@ def create_org():
     db.session.add(org)
     db.session.flush()
 
+    manager_role= Role(name="Manager", permissions=Org_ACL.ALL, org_id=org.id)
+    db.session.add(manager_role)
+    db.session.commit()
+
     subject = Subject(username=username, name=name, email=email, pub_key=pub_key, org_id=org.id)
+    subject.roles.append(manager_role)
     db.session.add(subject)
     db.session.commit()
 
@@ -618,6 +620,33 @@ def delete_doc():
 
     return Response(
         encrypt_body(new_size + new_data + data[2+data_size:], secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
+@app.route("/organization/roles", methods=["GET"])
+@requires_session
+def get_roles():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    roles = list(filter(lambda r: r.id in assumed_roles, organization.roles))
+
+    return Response(
+        encrypt_body(json.dumps(jsonify(roles).json).encode("utf8"), secret_key, mac_key),
         content_type="application/octet-stream",
         status=200
     )
