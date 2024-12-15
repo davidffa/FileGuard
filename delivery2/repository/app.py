@@ -690,6 +690,100 @@ def create_role():
         status=201
     )
 
+@app.route("/organization/roles/permissions", methods=["PATCH"])
+@requires_session
+def modify_role():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    has_perm = any([role for role in organization.roles if role.id in assumed_roles and has_permission(role.permissions, Org_ACL.ROLE_MOD)])
+
+    if not has_perm:
+        res = { "message": "Your active roles don't allow role modification!" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+
+    role = g.json["role"]
+
+    role = next((r for r in organization.roles if r.name == role), None)
+
+    if not role:
+        res = { "message": "Role not found" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    op = g.json["op"]
+
+    if op not in ["add", "remove"]:
+        res = { "message": "Unknown operation" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    user_perm = g.json["user_perm"]
+
+    if hasattr(Org_ACL, user_perm):
+        if op == "add":
+            role.permissions = add_permission(role.permissions, Org_ACL[user_perm])
+        else:
+            role.permissions = remove_permission(role.permissions, Org_ACL[user_perm])
+    else:
+        subject = next((sub for sub in organization.subjects if sub.username == user_perm), None)
+
+        if not subject:
+            res = { "message": "User not found" }
+            return Response(
+                encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+                content_type="application/octet-stream",
+                status=404
+            )
+
+        if op == "add":
+            if role not in subject.roles:
+                subject.roles.append(role)
+        else:
+            if role in subject.roles:
+                if role.name == "Manager" and len([sub for sub in role.subjects if not sub.suspended]) == 1:
+                    res = { "message": "The manager role must have at least 1 active subject" }
+                    return Response(
+                        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+                        content_type="application/octet-stream",
+                        status=400
+                    )
+
+                subject.roles.remove(role)
+
+    db.session.commit()
+
+    res = { "message": "Operation completed" }
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("master_password")
