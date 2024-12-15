@@ -651,6 +651,45 @@ def get_roles():
         status=200
     )
 
+@app.route("/organization/roles", methods=["POST"])
+@requires_session
+def create_role():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    has_perm = any([role for role in organization.roles if role.id in assumed_roles and has_permission(role.permissions, Org_ACL.ROLE_NEW)])
+
+    if not has_perm:
+        res = { "message": "Your active roles don't allow role creation!" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+
+    role = Role(name=g.json["role"], permissions=0, org_id=organization.id)
+    db.session.add(role)
+    db.session.commit()
+
+    return Response(
+        encrypt_body(json.dumps(jsonify(role).json).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=201
+    )
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("master_password")
