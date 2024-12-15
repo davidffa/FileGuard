@@ -783,6 +783,42 @@ def modify_role():
         status=200
     )
 
+@app.route("/organization/subjects/role", methods=["GET"])
+@requires_session
+def get_role_subjects():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    role_name = g.json["role"]
+    role = next((rol for rol in organization.roles if rol.name == role_name), None) 
+
+    if role is None:
+        res = { "message": "Role does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    subjects=[sub.username for sub in role.subjects]
+
+    return Response(
+        encrypt_body(json.dumps(jsonify(subjects).json).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
 
 if __name__ == "__main__":
     parser = ArgumentParser()
