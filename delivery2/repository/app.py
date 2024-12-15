@@ -820,6 +820,43 @@ def get_role_subjects():
         status=200
     )
 
+@app.route("/organization/subject/roles", methods=["GET"])
+@requires_session
+def get_roles_subject():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    username=g.json["username"]
+    roles=[]
+    subject = next((sub for sub in organization.subjects if sub.username == username), None)
+
+    if subject is None:
+        res = { "message": "Subject does not exist" }
+        return json.dumps(res), 400
+
+    for rol in subject.roles:
+        roles.append(rol.name)
+
+    return Response(
+        encrypt_body(json.dumps(jsonify(roles).json).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("master_password")
