@@ -856,6 +856,57 @@ def get_roles_subject():
         status=200
     )
 
+@app.route("/session/roles/assume", methods=["PATCH"])
+@requires_session
+def assume_role():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+    subject_id = g.subject_id
+
+    organization = Organization.query.get(org_id)
+    session = g.session
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    role = g.json["role"]
+
+    subject = Subject.query.get(subject_id)
+
+    role = next((r for r in subject.roles if r.name ==role), None)
+
+    if role == None:
+        res = {"message":"Role doesn't exist or you don't have permission to assume it"}
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+    
+    if role.suspended:
+        res = {"message":"Role is suspended"}
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    session.assume_role(role.id)
+    res = {}
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
