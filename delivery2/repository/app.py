@@ -414,15 +414,9 @@ def get_doc_metadata():
 
     file_handle = document.file_handle
 
-    has_perm=False
-    for role in assumed_roles:
-        docs_role=RoleDoc.query.filter_by(role_id=role)
-        for doc in docs_role:
-            if doc.doc_id ==file_handle:
-                if has_permission(doc.permissions, Doc_ACL.DOC_READ):
-                    has_perm=True
+    
 
-    if not has_perm:
+    if not any([role for role in document.roles if role.role_id in assumed_roles and has_permission(role.permissions, Doc_ACL.DOC_READ)]):
         res = { "message": "You do not have permission to execute this command!" }
         return Response(
             encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
