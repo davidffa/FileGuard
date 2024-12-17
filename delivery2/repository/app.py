@@ -936,6 +936,16 @@ def create_role():
             status=403
         )
 
+    existing_role = next((r for r in organization.roles if r.name == g.json["role"]), None)
+
+    if existing_role:
+        res = { "message": "Role already exists!" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=201
+        )
+
     role = Role(name=g.json["role"], permissions=0, org_id=organization.id)
     db.session.add(role)
     db.session.commit()
