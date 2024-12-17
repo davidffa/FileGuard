@@ -447,9 +447,8 @@ def get_doc_metadata():
 
     file_handle = document.file_handle
 
-    
-
-    if not any([role for role in document.roles if role.role_id in assumed_roles and has_permission(role.permissions, Doc_ACL.DOC_READ)]):
+    has_perm = check_perm_doc(document, assumed_roles, Doc_ACL.DOC_READ)
+    if not has_perm:
         res = { "message": "You do not have permission to execute this command!" }
         return Response(
             encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
@@ -471,7 +470,6 @@ def get_doc_metadata():
     json_data["file_handle"] = document.file_handle
     json_data["creator"] = str(document.creator_id)
     json_data["create_date"] = document.create_date.isoformat()
-    # ACL ?
     json_data["deleter"] = document.deleter
 
     new_data = json.dumps(json_data).encode("utf8")
@@ -803,6 +801,7 @@ def acl_doc():
     secret_key = g.session.secret_key
     mac_key = g.session.mac_key
     org_id = g.org_id
+    assumed_roles = g.session.roles
 
     document_name = g.json["document_name"]
     option = g.json["option"]
@@ -834,6 +833,16 @@ def acl_doc():
             content_type="application/octet-stream",
             status=400
         )
+    
+    has_perm = check_perm_doc(document, assumed_roles, Doc_ACL.DOC_ACL)
+    if not has_perm:
+        res = {"message" : "You don't have the DOC_ACL permission"}
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
     
     role = next((r for r in organization.roles if r.name == role), None)
     if role is None:
