@@ -714,13 +714,13 @@ def list_docs():
 @app.route("/document/delete", methods=["PUT"])
 @requires_session
 def delete_doc():
-    #TODO This commands requires a DOC_DELETE permission.
     secret_key = g.session.secret_key
     mac_key = g.session.mac_key
     
     org_id = g.org_id
     subject_id = g.subject_id
-
+    assumed_roles = g.session.roles
+    
     document_name = g.json["document_name"]
     
     document = Document.query.filter_by(org_id=org_id, name=document_name).first()
@@ -731,6 +731,17 @@ def delete_doc():
             content_type="application/octet-stream",
             status=400
         )
+    
+    has_perm = check_perm_doc(document, assumed_roles, Doc_ACL.DOC_DELETE)
+
+    if not has_perm:
+        res = {"message" : "You don't have the DOC_DELETE permission" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
 
     file_handle = document.file_handle
     with open(f"./documents/{file_handle}-metadata.bin", "rb") as f:

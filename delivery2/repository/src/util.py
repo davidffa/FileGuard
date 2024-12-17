@@ -34,6 +34,9 @@ def has_permission(permissions: int, permission):
 def check_perm(org, assumed, perm):
     return any([role for role in org.roles if role.id in assumed and has_permission(role.permissions, perm)])
 
+def check_perm_doc(doc, assumed, perm):
+    return any([role for role in doc.roles if role.role_id in assumed and has_permission(role.permissions, perm)])
+
 def add_permission(permissions: int, permission):
     return permissions | permission
 
