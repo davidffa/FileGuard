@@ -2,17 +2,51 @@
 
 import json
 import logging
+import os
 import sys
 
 import requests
 from common import (decrypt_body, encrypt_body, load_session, parse_args,
                     parse_env, update_session_sequence)
-
-from crypto import decrypt_aes256_cbc, sha256_digest
+from crypto import (decrypt_aes256_cbc, ecdh_shared_key, encrypt_aes256_cbc,
+                    generate_ec_keypair, load_pub_key, serialize_pub_key,
+                    sha256_digest, verify_ecdsa)
 
 logging.basicConfig(format="%(levelname)s\t- %(message)s")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+def encrypt_body_without_mac(body: bytes, secret_key: bytes) -> bytes:
+    iv = os.urandom(16)
+    return iv + encrypt_aes256_cbc(body, secret_key, iv)
+
+def get_file(state, file_handle):
+    ephemeral_priv_key, ephemeral_pub_key = generate_ec_keypair()
+    server_pub_key = load_pub_key(state["REP_PUB_KEY"].encode("utf8"))
+    secret_key = ecdh_shared_key(ephemeral_priv_key, server_pub_key, 32)
+    serialized_pub_key = serialize_pub_key(ephemeral_pub_key)
+    body = {
+        "file_handle": file_handle
+    }
+    
+    cipheredbody = encrypt_body_without_mac(json.dumps(body).encode("utf8"), secret_key)
+    data = len(serialized_pub_key).to_bytes(2, "big") + serialized_pub_key + cipheredbody
+
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/files', data=data)
+
+    if req.status_code == 200:
+        body_len = int.from_bytes(req.content[:2], "big")
+        body = req.content[2:2+body_len]
+        signature = req.content[2+body_len:]
+
+        if verify_ecdsa(server_pub_key, body, signature):
+            return decrypt_aes256_cbc(secret_key, body[:16], body[16:])
+        else:
+            logger.error("Could not authenticate the server, response signature mismatch! Someone could be eavesdropping on you!")
+            sys.exit(-1)
+    else:
+        logger.error(req.json())
+        sys.exit(-1)
 
  # This commands requires a DOC_READ permission.
 def main():
@@ -42,6 +76,7 @@ def main():
         "document_name": state["document_name"]
     }
 
+    logger.info("Fetching document metadata...")
 
     body = encrypt_body(json.dumps(body).encode("utf8"), seq, secret_key, mac_key)
 
@@ -75,15 +110,12 @@ def main():
     secret_key = metadata[2+size:2+size+32]
     iv = metadata[2+size+32:]
 
+    logger.info("Fetching file...")
     file_handle = json_metadata["file_handle"]
-    req = requests.get(f'http://{state["REP_ADDRESS"]}/files/{file_handle}')
 
-    if req.status_code == 200:
-        ciphertext = req.content
-    else:
-        logger.error(req.json())
-        sys.exit(-1)
+    ciphertext = get_file(state, file_handle)
 
+    logger.info("Decrypting file...")
     plaintext = decrypt_aes256_cbc(secret_key, iv, ciphertext)
 
     if file_handle != sha256_digest(plaintext):

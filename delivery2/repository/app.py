@@ -364,7 +364,6 @@ def get_doc_metadata():
     mac_key = g.session.mac_key
 
     org_id = g.org_id
-    subject_id = g.subject_id
     doc_name = g.json["document_name"]
 
     organization = db.session.get(Organization, org_id)
@@ -490,13 +489,35 @@ def put_activation():
         status=404
     )
 
-@app.route('/files/<file_handle>', methods=["GET"])
-def get_file(file_handle):
+@app.route('/files', methods=["GET"])
+def get_file():
+    if private_key is None:
+        print("Something went wrong... We dont have our private key!")
+        return "{}", 500
+
+    data = request.data
+
+    key_size = int.from_bytes(data[:2], "big")
+
+    ephemeral_pub_key = load_pub_key(data[2:2+key_size])
+    secret_key = ecdh_shared_key(private_key, ephemeral_pub_key, 32)
+    iv = data[2+key_size:2+key_size+16]
+    ciphertext = data[2+key_size+16:]
+
+    body = json.loads(decrypt_aes256_cbc(secret_key, iv, ciphertext))
+
+    file_handle = body["file_handle"]
+
     if os.path.isfile(f"./documents/{file_handle}.bin") : 
+        iv = os.urandom(16)
         with open(f"./documents/{file_handle}.bin", 'rb') as f:
+            cipherbody = iv + encrypt_aes256_cbc(f.read(), secret_key, iv)
+            signature = sign_ecdsa(private_key, cipherbody)
+
             return Response(
-                f.read(),
-                mimetype="application/octet-stream"
+                len(cipherbody).to_bytes(2, "big") + cipherbody + signature,
+                mimetype="application/octet-stream",
+                status=200
             )
 
     return "", 404
