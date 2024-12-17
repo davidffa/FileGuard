@@ -1008,6 +1008,129 @@ def get_roles_permission():
         status=400
     )
 
+
+@app.route("/organization/subject/roles/suspend", methods=["PATCH"])
+@requires_session
+def suspend_role():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+    subject_id = g.subject_id
+
+    organization = Organization.query.get(org_id)
+    session = g.session
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    role = g.json["role"]
+
+    role = next((r for r in organization.roles if r.name ==role), None)
+
+    if not check_perm(organization, assumed_roles, Org_ACL.ROLE_DOWN):
+        res = {"message":"You have no permission to execute this command!"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+
+    role = next((r for r in organization.roles if r.name ==role.name), None)
+
+    if role is None:
+        res = {"message":"Role does not exist"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    if role.name=="Manager":
+        res = {"message":"Manager can not be suspended!"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    role.suspended=True
+    db.session.commit()
+
+    for session in sessions.values():
+        session.drop_role(role.id)
+
+    res = {}
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
+@app.route("/organization/subject/roles/reactivate", methods=["PATCH"])
+@requires_session
+def reactivate_role():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
+
+    org_id = g.org_id
+    subject_id = g.subject_id
+
+    organization = Organization.query.get(org_id)
+    session = g.session
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    role = g.json["role"]
+
+    role = next((r for r in organization.roles if r.name ==role), None)
+
+    if not check_perm(organization, assumed_roles, Org_ACL.ROLE_UP):
+        res = {"message":"You have no permission to execute this command!"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+
+    role = next((r for r in organization.roles if r.name ==role.name), None)
+
+    if role is None:
+        res = {"message":"Role does not exist"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    role.suspended=False
+    db.session.commit()
+
+    res = {}
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("master_password")

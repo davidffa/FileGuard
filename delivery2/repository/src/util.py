@@ -26,10 +26,14 @@ class SessionContext:
         self.roles.add(role_id)
 
     def drop_role(self, role_id):
-        self.roles.remove(role_id)
+        self.roles.discard(role_id)
 
 def has_permission(permissions: int, permission):
     return permissions & permission == permission
+
+def check_perm(org, assumed, perm):
+    has_perm = any([role for role in org.roles if role.id in assumed and has_permission(role.permissions, perm)])
+    return has_perm
 
 def add_permission(permissions: int, permission):
     return permissions | permission
