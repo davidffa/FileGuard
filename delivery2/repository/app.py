@@ -91,7 +91,28 @@ def encrypt_body(body: bytes, secret_key: bytes, mac_key: bytes) -> bytes:
 
 @app.route("/organization/list")
 def org_list():
-    return jsonify(Organization.query.all())
+    if private_key is None:
+        print("Something went wrong... We dont have our private key!")
+        return "{}", 500
+
+    data = request.data
+
+    key_size = int.from_bytes(data[:2], "big")
+
+    ephemeral_pub_key = load_pub_key(data[2:2+key_size])
+    secret_key = ecdh_shared_key(private_key, ephemeral_pub_key, 32)
+
+    orgs = [org.name for org in Organization.query.all()]
+
+    iv = os.urandom(16)
+    cipherbody = iv + encrypt_aes256_cbc(json.dumps(orgs).encode("utf8"), secret_key, iv)
+    signature = sign_ecdsa(private_key, cipherbody)
+
+    return Response(
+        len(cipherbody).to_bytes(2, "big") + cipherbody + signature,
+        content_type="application/octet-stream",
+        status=200
+    )
 
 @app.route("/organization/create", methods=["POST"])
 def create_org():
