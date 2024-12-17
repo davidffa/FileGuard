@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from flask import Response, g, jsonify, request
 from src import create_app, db
 from src.crypto import *
-from src.models import Document, Organization, Role, Subject, RoleDoc
+from src.models import Document, Organization, Role, RoleDoc, Subject
 from src.util import *
 
 app = create_app()
@@ -300,53 +300,86 @@ def add_doc():
 
 @app.route("/organization/create/session", methods=["POST"])
 def create_session():
-    if request.json is None:
-        res = { "message": "Empty request body" }
-        return json.dumps(res), 400
-
-    org_name = request.json["organization"]
-    username = request.json["username"]
-    
-    organization = Organization.query.filter_by(name=org_name).first()
-
-    if organization is None:
-        res = { "message": "Organization does not exist" }
-        return json.dumps(res), 400
-
-    subject = next((sub for sub in organization.subjects if sub.username == username), None)
-    
-    if subject is None:
-        res = { "message": "Subject does not exist" }
-        return json.dumps(res), 400
-
-    serialized_pub_key = request.json["ephemeral_pub_key"].encode("utf8")
-    ephemeral_pub_key = load_pub_key(serialized_pub_key)
-    subject_pub_key = load_pub_key(subject.pub_key.encode("utf8"))
-    signature = base64.b64decode(request.json["signature"])
-
-    if not verify_ecdsa(subject_pub_key, bytes(org_name, "utf8") + bytes(username, "utf8") + serialized_pub_key, signature):
-        res = { "message": "Could not verify the signature" }
-        return json.dumps(res), 400
-
     if private_key is None:
         print("Something went wrong... We dont have our private key!")
         return "{}", 500
 
+    data = request.data
+
+    key_size = int.from_bytes(data[:2], "big")
+
+    ephemeral_pub_key = load_pub_key(data[2:2+key_size])
     keys = ecdh_shared_key(private_key, ephemeral_pub_key, 64)
+    secret_key = keys[:32]
+    mac_key = keys[32:]
+
+    iv = data[2+key_size:2+key_size+16]
+    ciphertext = data[2+key_size+16:]
+
+    plaintext = decrypt_aes256_cbc(secret_key, iv, ciphertext)
+
+    body_size = int.from_bytes(plaintext[:2], "big")
+    body = json.loads(plaintext[2:2+body_size])
+    signature = plaintext[2+body_size:]
+
+    org_name = body["organization"]
+    username = body["username"]
+    
+    organization = Organization.query.filter_by(name=org_name).first()
+
+    if organization is None:
+        # As the organizations are public information, we can send this message
+        res = { "message": "Organization does not exist" }
+        iv = os.urandom(16)
+        cipherbody = iv + encrypt_aes256_cbc(json.dumps(res).encode("utf8"), secret_key, iv)
+        signature = sign_ecdsa(private_key, cipherbody)
+        return Response(
+            len(cipherbody).to_bytes(2, "big") + cipherbody + signature, 
+            mimetype="application/octet-stream",
+            status=400
+        )
+
+    subject = next((sub for sub in organization.subjects if sub.username == username), None)
+    
+    # In case of inexistent subject or priv/pubkey auth failed, we send the same message for extra security
+    if subject is None:
+        res = { "message": "Could not authenticate the subject." }
+        iv = os.urandom(16)
+        cipherbody = iv + encrypt_aes256_cbc(json.dumps(res).encode("utf8"), secret_key, iv)
+        signature = sign_ecdsa(private_key, cipherbody)
+        return Response(
+            len(cipherbody).to_bytes(2, "big") + cipherbody + signature, 
+            mimetype="application/octet-stream",
+            status=400
+        )
+
+    subject_pub_key = load_pub_key(subject.pub_key.encode("utf8"))
+
+    # The subject signs the ephemeral pub key + the json body
+    if not verify_ecdsa(subject_pub_key, data[2:2+key_size] + plaintext[2:2+body_size], signature):
+        res = { "message": "Could not authenticate the subject." }
+        iv = os.urandom(16)
+        cipherbody = iv + encrypt_aes256_cbc(json.dumps(res).encode("utf8"), secret_key, iv)
+        signature = sign_ecdsa(private_key, cipherbody)
+        return Response(
+            len(cipherbody).to_bytes(2, "big") + cipherbody + signature, 
+            mimetype="application/octet-stream",
+            status=400
+        )
 
     session_id = uuid.uuid4().hex
     session = SessionContext(
         session_id,
         organization.id,
         subject.id,
-        secret_key=keys[:32],
-        mac_key=keys[32:]
+        secret_key,
+        mac_key
     )
 
     sessions[session_id] = session
     data = bytes(json.dumps(session.get_info()), "utf8")
 
-    cipherbody = encrypt_body(data, keys[:32], keys[32:])
+    cipherbody = encrypt_body(data, secret_key, mac_key)
 
     return Response(
         cipherbody, 

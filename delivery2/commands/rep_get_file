@@ -68,7 +68,13 @@ def main():
             logger.error("Could not authenticate the server, response signature mismatch! Someone could be eavesdropping on you!")
             sys.exit(-1)
     else:
-        logger.error(req.json())
+        if req.headers["content-type"] == "application/octet-stream":
+            iv = req.content[:16]
+            cipherbody = req.content[16:]
+            body = decrypt_aes256_cbc(secret_key, iv, cipherbody).decode("utf8")
+            logger.error(body)
+        else:
+            logger.error(req.json())
         sys.exit(-1)
 
 if __name__ == "__main__":
