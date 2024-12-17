@@ -282,11 +282,12 @@ def add_doc():
 
     db.session.add(doc)
     db.session.commit()
-
     
     for role_id in assumed_roles:
-        roledoc = RoleDoc.query.filter_by(role_id = role_id, doc_id=doc.document_handle).first()
-        roledoc.permissions = add_permission(roledoc.permissions, Doc_ACL.ALL)
+        role_doc = RoleDoc(role_id = role_id, doc_id=doc.document_handle, permissions=Doc_ACL.ALL)
+        db.session.add(role_doc)
+
+    db.session.commit()
 
     res = jsonify(doc)
 
