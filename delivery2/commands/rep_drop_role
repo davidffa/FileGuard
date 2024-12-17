@@ -40,7 +40,7 @@ def main():
     }
     body = encrypt_body(json.dumps(body).encode("utf8"), seq, secret_key, mac_key)
 
-    req = requests.patch(f'http://{state["REP_ADDRESS"]}//session/roles/drop', headers=headers, data=body)
+    req = requests.patch(f'http://{state["REP_ADDRESS"]}/session/roles/drop', headers=headers, data=body)
     update_session_sequence(session_file)
 
     if req.status_code == 200:

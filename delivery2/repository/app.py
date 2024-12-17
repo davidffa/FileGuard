@@ -570,6 +570,7 @@ def get_file():
 def create_subject():
     secret_key = g.session.secret_key
     mac_key = g.session.mac_key
+    assumed_roles = g.session.roles
     
     username = g.json["username"]
     name = g.json["name"]
@@ -577,12 +578,20 @@ def create_subject():
     pub_key = g.json["pub_key"]
     org_id = g.org_id
 
-    #TODO So podemos adicionar um sujeito se tivermos a permissão SUBJECT_NEW
-     
     organization = Organization.query.get(org_id)
     
     if organization is None:
         res = {"message" : "Organization not found" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    has_perm = check_perm(organization, assumed_roles, Org_ACL.SUBJECT_NEW)
+
+    if not has_perm:
+        res = {"message" : "You don't have the SUBJECT_NEW permission" }
         return Response(
             encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
             content_type="application/octet-stream",
