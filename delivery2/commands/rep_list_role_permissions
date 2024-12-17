@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+import json
+import logging
+import sys
+
+import requests
+from common import (decrypt_body, load_session, parse_args, parse_env,
+                    update_session_sequence, encrypt_body)
+from crypto import compute_hmac
+
+logging.basicConfig(format="%(levelname)s\t- %(message)s")
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def main():
+    state = parse_env({})
+    positional_args = ["session_file", "role"]
+    state = parse_args(state, positional_args)
+
+    
+    if 'REP_ADDRESS' not in state:
+        logger.error("Must define Repository Address")
+        sys.exit(-1)
+
+    if 'REP_PUB_KEY' not in state:
+        logger.error("Must set the Repository Public Key")
+        sys.exit(-1)
+
+    session_file = state["session_file"]
+    role=state["role"]
+    
+    session_id, seq, secret_key, mac_key = load_session(session_file)
+
+    headers = {
+        "sessionid": session_id,
+    }
+
+    body = {
+        "role": state["role"]
+    }
+
+    body = encrypt_body(json.dumps(body).encode("utf8"), seq, secret_key, mac_key)
+
+
+
+      
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/organization/role/permissions', headers=headers, data=body)
+    update_session_sequence(session_file)
+
+    if req.status_code == 200:
+        data = json.loads(decrypt_body(req.content, secret_key, mac_key))
+        logger.info("Current permissions for role "+role+":")
+        logger.info(data)
+    else:
+        if req.headers["content-type"] == "application/octet-stream":
+            logger.error(decrypt_body(req.content, secret_key, mac_key))
+        else:
+            logger.error(req.json())
+        sys.exit(-1)
+
+if __name__ == "__main__":
+    main()

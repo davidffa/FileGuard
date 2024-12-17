@@ -1131,6 +1131,49 @@ def reactivate_role():
         status=200
     )
 
+@app.route("/organization/role/permissions", methods=["GET"])
+@requires_session
+def get_role_permissions():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    role = g.json["role"]
+
+    role = next((r for r in organization.roles if r.name ==role), None)
+
+    if role is None:
+        res = {"message":"Role doesn't exist"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
+    perms=[]
+    for permName, val in Org_ACL.__members__.items():
+        if(has_permission(role.permissions, val)):
+            perms.append(permName)
+
+    res = perms
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=400
+    )
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("master_password")
