@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from flask import Response, g, jsonify, request
 from src import create_app, db
 from src.crypto import *
-from src.models import Document, Organization, Role, Subject
+from src.models import Document, Organization, Role, Subject, RoleDoc
 from src.util import *
 
 app = create_app()
@@ -662,6 +662,80 @@ def delete_doc():
 
     return Response(
         encrypt_body(new_size + new_data + data[2+data_size:], secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=200
+    )
+
+@app.route("/document/acl", methods=["PATCH"])
+@requires_session
+def acl_doc():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+    org_id = g.org_id
+
+    document_name = g.json["document_name"]
+    option = g.json["option"]
+    role = g.json["role"]
+    permission = g.json["permission"].upper()
+
+    if permission not in Doc_ACL.__members__.keys():
+        res = { "message": "Permission does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    organization = Organization.query.get(org_id)
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+    
+    document = Document.query.filter_by(org_id=org_id, name=document_name).first()
+    if document is None :
+        res = { "message": "A document with that name doesn't exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+    
+    role = next((r for r in organization.roles if r.name == role), None)
+    if role is None:
+        res = { "message": "Role not found" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+    
+    roledoc = RoleDoc.query.filter_by(role_id = role.id, doc_id=document.document_handle).first()
+
+    if option == "+":
+        if roledoc is None:
+            role_doc = RoleDoc(role_id = role.id, doc_id=document.document_handle, permissions=Doc_ACL[permission])
+            db.session.add(role_doc)
+        else:
+            roledoc.permissions = add_permission(roledoc.permissions, Doc_ACL[permission])
+    else:
+        if roledoc is None:
+            res = { "message": "RoleDoc not found" }
+            return Response(
+                encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+                content_type="application/octet-stream",
+                status=404
+            )
+
+        roledoc.permissions = remove_permission(roledoc.permissions,Doc_ACL[permission])
+
+    db.session.commit()
+    res = {}
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
         content_type="application/octet-stream",
         status=200
     )

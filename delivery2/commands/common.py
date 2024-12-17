@@ -34,7 +34,7 @@ def parse_env(state):
                 logger.debug('Loaded REP_PUB_KEY from Environment')
     return state
 
-def parse_args(state, positional_args, optional_args=[], args_with_flags=[]):
+def parse_args(state, positional_args, optional_args=[], args_with_flags=[], options_args=[], second_args=[] ):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-k", '--key', nargs=1, help="Path to the key file")
@@ -46,6 +46,12 @@ def parse_args(state, positional_args, optional_args=[], args_with_flags=[]):
 
     for arg in optional_args:
         parser.add_argument(arg, nargs='?', default=None)
+
+    if options_args != []:
+        parser.add_argument("option", metavar="[-/+]", choices=["+", "-"])
+
+    for arg in second_args:
+        parser.add_argument(arg)
 
     if "-s" in args_with_flags:
         parser.add_argument("-s", '--username',type=str, nargs='?', help="Subject username")
@@ -91,6 +97,12 @@ def parse_args(state, positional_args, optional_args=[], args_with_flags=[]):
         state[arg] = getattr(args, arg)
 
     for arg in optional_args:
+        state[arg] = getattr(args, arg)
+
+    if options_args != []:
+        state["option"] = getattr(args, "option")
+
+    for arg in second_args:
         state[arg] = getattr(args, arg)
 
     return state
