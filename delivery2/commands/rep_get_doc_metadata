@@ -28,6 +28,8 @@ def main():
     session_file = state["session_file"]
 
     session_id, seq, secret_key, mac_key = load_session(session_file)
+
+    doc_name=state["document_name"]
     
     headers = {
         "sessionid": session_id
@@ -48,7 +50,7 @@ def main():
         with open(state["document_name"], 'wb') as f:
             f.write(decrypt_body(req.content, secret_key, mac_key))
 
-        logger.info(f"File '{state["document_name"]}' downloaded successfully")
+        logger.info(f"File '{doc_name}' downloaded successfully")
        
     else:
         if req.headers["content-type"] == "application/octet-stream":

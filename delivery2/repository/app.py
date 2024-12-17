@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from flask import Response, g, jsonify, request
 from src import create_app, db
 from src.crypto import *
-from src.models import Document, Organization, Role, Subject
+from src.models import Document, Organization, Role, Subject, RoleDoc
 from src.util import *
 
 app = create_app()
@@ -345,6 +345,7 @@ def get_doc_metadata():
     org_id = g.org_id
     subject_id = g.subject_id
     doc_name = g.json["document_name"]
+    assumed_roles=g.session.roles
 
     organization = db.session.get(Organization, org_id)
 
@@ -357,7 +358,7 @@ def get_doc_metadata():
         )
 
     document = Document.query.filter_by(org_id=org_id, name=doc_name).first()
-
+                
     if document is None or document.file_handle is None:
         res = { "message": "Document not found" }
         return Response(
@@ -368,6 +369,22 @@ def get_doc_metadata():
 
     file_handle = document.file_handle
 
+    has_perm=False
+    for role in assumed_roles:
+        docs_role=RoleDoc.query.filter_by(role_id=role)
+        for doc in docs_role:
+            if doc.doc_id ==file_handle:
+                if has_permission(doc.permissions, Doc_ACL.DOC_READ):
+                    has_perm=True
+
+    if not has_perm:
+        res = { "message": "You do not have permission to execute this command!" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+    
     with open(f"./documents/{file_handle}-metadata.bin", "rb") as f:
         encrypted_metadata = f.read()
         metadata_iv = encrypted_metadata[:16]
