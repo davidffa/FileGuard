@@ -958,6 +958,55 @@ def drop_role():
     )
 
 
+@app.route("/organization/permission-roles", methods=["GET"])
+@requires_session
+def get_roles_permission():
+    secret_key = g.session.secret_key
+    mac_key = g.session.mac_key
+
+    org_id = g.org_id
+
+    organization = Organization.query.get(org_id)
+
+    if organization is None:
+        res = { "message": "Organization does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
+    permission = str(g.json["permission"]).upper()
+
+    if permission in Org_ACL.__members__.keys():
+        roles = [r.name for r in organization.roles if has_permission(r.permissions, Org_ACL[permission])]
+
+        return Response(
+            encrypt_body(json.dumps(roles).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=200
+        )
+    elif permission in Doc_ACL.__members__.keys():
+        documents = organization.documents
+
+        res = {}
+
+        for doc in documents:
+            role_ids = {r.role_id for r in doc.roles if has_permission(r.permissions, Doc_ACL[permission])}
+            res[doc.name] = [r.name for r in organization.roles if r.id in role_ids]
+        
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=200
+        )
+
+    res = { "message": "Permission does not exist" }
+    return Response(
+        encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+        content_type="application/octet-stream",
+        status=400
+    )
 
 if __name__ == "__main__":
     parser = ArgumentParser()
