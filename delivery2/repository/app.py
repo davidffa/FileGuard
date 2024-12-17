@@ -420,7 +420,7 @@ def get_doc_metadata():
 def put_suspension():
     secret_key = g.session.secret_key
     mac_key = g.session.mac_key
-
+    assumed_roles=g.session.roles
     org_id = g.org_id
     
     subject_name= g.json["username"]
@@ -435,6 +435,37 @@ def put_suspension():
             status=404
         )
     
+    if not check_perm(organization, assumed_roles, Org_ACL.SUBJECT_DOWN):
+        res = {"message":"You have no permission to execute this command!"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+    
+    manager_role = next((role for role in organization.roles if role.name == "Manager"), None)
+
+    if manager_role is None:
+        res = { "message": "Manager role does not exist" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=500
+        )
+    
+    managersActive = 0
+    for subject in manager_role.subjects:
+        if not subject.suspended:
+            managersActive+=1
+    if managersActive<=1:
+        res = { "message": "Manager role needs at least one active subject!" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=400
+        )
+
     for subject in organization.subjects:
         if subject.username == subject_name:
             subject.suspended = True
@@ -460,6 +491,7 @@ def put_activation():
     mac_key = g.session.mac_key
     
     org_id = g.org_id
+    assumed_roles=g.session.roles
 
     subject_name = g.json["username"]
 
@@ -472,6 +504,16 @@ def put_activation():
             content_type="application/octet-stream",
             status=404
         )
+    
+    if not check_perm(organization, assumed_roles, Org_ACL.SUBJECT_UP):
+        res = {"message":"You have no permission to execute this command!"}
+
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=403
+        )
+
     for subject in organization.subjects:   
         if subject.username == subject_name:
             subject.suspended = False
