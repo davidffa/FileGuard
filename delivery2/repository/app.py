@@ -187,6 +187,25 @@ def add_doc():
     org_id = g.org_id
     subject_id = g.subject_id
 
+    organization = db.session.get(Organization, org_id)
+    if organization is None:
+        res = { "message": "Organization not found" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+    
+    assumed_roles=g.session.roles
+    has_perm = check_perm(organization, assumed_roles, Org_ACL.DOC_NEW)
+    if not has_perm:
+        res = {"message" : "You don't have the DOC_NEW permission" }
+        return Response(
+            encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
+            content_type="application/octet-stream",
+            status=404
+        )
+
     encrypted_file = request.files["file"].read()
     cipher_file_secret_key = request.files["secret_key"].read()
     doc_iv = request.files["iv"].read()
@@ -262,6 +281,12 @@ def add_doc():
     doc = Document(name=file_name, creator_id=subject_id, file_handle=file_handle, org_id=org_id)
 
     db.session.add(doc)
+    db.session.commit()
+    
+    for role_id in assumed_roles:
+        role_doc = RoleDoc(role_id = role_id, doc_id=doc.document_handle, permissions=Doc_ACL.ALL)
+        db.session.add(role_doc)
+
     db.session.commit()
 
     res = jsonify(doc)
