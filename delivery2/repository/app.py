@@ -367,6 +367,17 @@ def create_session():
             status=400
         )
 
+    if subject.suspended:
+        res = { "message": "You are suspended!" }
+        iv = os.urandom(16)
+        cipherbody = iv + encrypt_aes256_cbc(json.dumps(res).encode("utf8"), secret_key, iv)
+        signature = sign_ecdsa(private_key, cipherbody)
+        return Response(
+            len(cipherbody).to_bytes(2, "big") + cipherbody + signature, 
+            mimetype="application/octet-stream",
+            status=400
+        )
+
     session_id = uuid.uuid4().hex
     session = SessionContext(
         session_id,
@@ -522,10 +533,12 @@ def put_suspension():
         )
     
     managersActive = 0
+
     for subject in manager_role.subjects:
-        if not subject.suspended:
+        if not subject.suspended and subject_name != subject.username:
             managersActive+=1
-    if managersActive<=1:
+
+    if managersActive == 0:
         res = { "message": "Manager role needs at least one active subject!" }
         return Response(
             encrypt_body(json.dumps(res).encode("utf8"), secret_key, mac_key),
@@ -535,6 +548,11 @@ def put_suspension():
 
     for subject in organization.subjects:
         if subject.username == subject_name:
+            for session_id, session in sessions.items():
+                if session.subject_id == subject.id:
+                    sessions.pop(session_id)
+                    break
+
             subject.suspended = True
             db.session.commit()
             res= { "message": "Subject suspended" }
