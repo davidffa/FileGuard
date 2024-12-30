@@ -1,0 +1,30 @@
+services:
+  database:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: repository
+
+    ports:
+      - "$DB_PORT:$DB_PORT"
+
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    stop_signal: SIGINT
+    
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://$DB_USER:$DB_PASSWORD@database:$DB_PORT/$DB_NAME
+      MASTER_PASSWORD: $MASTER_PASSWORD
+
+    ports:
+      - "8000:8000"
+
+volumes:
+  db:

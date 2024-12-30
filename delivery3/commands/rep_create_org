@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+import json
+import logging
+import os
+import sys
+
+import requests
+from common import parse_args, parse_env
+from crypto import (decrypt_aes256_cbc, ecdh_shared_key, encrypt_aes256_cbc,
+                    generate_ec_keypair, load_pub_key, serialize_pub_key,
+                    verify_ecdsa)
+
+logging.basicConfig(format="%(levelname)s\t- %(message)s")
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def encrypt_body(body: bytes, secret_key: bytes) -> bytes:
+    iv = os.urandom(16)
+    return iv + encrypt_aes256_cbc(body, secret_key, iv)
+
+def main():
+    state = parse_env({})
+    positional_args = ["organization", "username", "name", "email", "pub_key_file"]
+    state = parse_args(state, positional_args)
+
+    if 'REP_ADDRESS' not in state:
+        logger.error("Must define Repository Address")
+        sys.exit(-1)
+
+    if 'REP_PUB_KEY' not in state:
+        logger.error("Must set the Repository Public Key")
+        sys.exit(-1)
+
+
+    pub_key_file = state["pub_key_file"]
+
+    with open(pub_key_file, "r") as f:
+        pub_key = f.read()
+
+    ephemeral_priv_key, ephemeral_pub_key = generate_ec_keypair()
+    server_pub_key = load_pub_key(state["REP_PUB_KEY"].encode("utf8"))
+    secret_key = ecdh_shared_key(ephemeral_priv_key, server_pub_key, 32)
+    serialized_pub_key = serialize_pub_key(ephemeral_pub_key)
+
+    body = {
+        "organization": state["organization"],
+        "username": state["username"],
+        "name": state["name"],
+        "email": state["email"],
+        "pub_key": pub_key
+    }
+
+    cipheredbody = encrypt_body(json.dumps(body).encode("utf8"), secret_key)
+    data = len(serialized_pub_key).to_bytes(2, "big") + serialized_pub_key + cipheredbody
+      
+    req = requests.post(f'http://{state["REP_ADDRESS"]}/organization/create', data=data)
+
+    if req.status_code == 201:
+        signature = req.content
+
+        if verify_ecdsa(server_pub_key, json.dumps(body).encode("utf8"), signature):
+            logger.info("Organization created")
+        else:
+            logger.error("Could not authenticate the server, response signature mismatch! Someone could be eavesdropping on you!")
+    else:
+        if req.headers["content-type"] == "application/octet-stream":
+            iv = req.content[:16]
+            logger.error(json.loads(decrypt_aes256_cbc(secret_key, iv, req.content[16:])))
+        else:
+            logger.error(req.json())
+        sys.exit(-1)
+
+if __name__ == "__main__":
+    main()

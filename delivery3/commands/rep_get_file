@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+
+import json
+import logging
+import os
+import sys
+
+import requests
+from common import parse_args, parse_env
+from crypto import (decrypt_aes256_cbc, ecdh_shared_key, encrypt_aes256_cbc,
+                    generate_ec_keypair, load_pub_key, serialize_pub_key,
+                    verify_ecdsa)
+
+logging.basicConfig(format="%(levelname)s\t- %(message)s")
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def encrypt_body(body: bytes, secret_key: bytes) -> bytes:
+    iv = os.urandom(16)
+    return iv + encrypt_aes256_cbc(body, secret_key, iv)
+
+def main():
+    state = parse_env({})
+    positional_args = ["file_handle"]
+    optional_args = ["file"]
+    state = parse_args(state, positional_args, optional_args)
+
+    if 'REP_ADDRESS' not in state:
+        logger.error("Must define Repository Address")
+        sys.exit(-1)
+
+    if 'REP_PUB_KEY' not in state:
+        logger.error("Must set the Repository Public Key")
+        sys.exit(-1)
+
+    file_handle = state["file_handle"]
+    file = state["file"]
+
+    ephemeral_priv_key, ephemeral_pub_key = generate_ec_keypair()
+    server_pub_key = load_pub_key(state["REP_PUB_KEY"].encode("utf8"))
+    secret_key = ecdh_shared_key(ephemeral_priv_key, server_pub_key, 32)
+    serialized_pub_key = serialize_pub_key(ephemeral_pub_key)
+
+    body = {
+        "file_handle": file_handle
+    }
+    
+    cipheredbody = encrypt_body(json.dumps(body).encode("utf8"), secret_key)
+    data = len(serialized_pub_key).to_bytes(2, "big") + serialized_pub_key + cipheredbody
+
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/files', data=data)
+
+    if req.status_code == 200:
+        logger.info("File given with success")
+        body_len = int.from_bytes(req.content[:2], "big")
+        body = req.content[2:2+body_len]
+        signature = req.content[2+body_len:]
+
+        if verify_ecdsa(server_pub_key, body, signature):
+            file_content = decrypt_aes256_cbc(secret_key, body[:16], body[16:])
+
+            if file != None : 
+                with open(file, 'wb') as f:
+                    f.write(file_content)
+            else:
+                sys.stdout.buffer.write(file_content)
+        else:
+            logger.error("Could not authenticate the server, response signature mismatch! Someone could be eavesdropping on you!")
+            sys.exit(-1)
+    else:
+        if req.headers["content-type"] == "application/octet-stream":
+            iv = req.content[:16]
+            cipherbody = req.content[16:]
+            body = decrypt_aes256_cbc(secret_key, iv, cipherbody).decode("utf8")
+            logger.error(body)
+        else:
+            logger.error(req.json())
+        sys.exit(-1)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+
+import logging
+import sys
+
+import requests
+from common import parse_args, parse_env
+from crypto import (decrypt_aes256_cbc, ecdh_shared_key, generate_ec_keypair,
+                    load_pub_key, serialize_pub_key, verify_ecdsa)
+
+logging.basicConfig(format="%(levelname)s\t- %(message)s")
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def main():
+    state = parse_env({})
+    positional_args = []
+    state = parse_args(state, positional_args)
+
+    if 'REP_ADDRESS' not in state:
+        logger.error("Must define Repository Address")
+        sys.exit(-1)
+
+    if 'REP_PUB_KEY' not in state:
+        logger.error("Must set the Repository Public Key")
+        sys.exit(-1)
+
+    ephemeral_priv_key, ephemeral_pub_key = generate_ec_keypair()
+    server_pub_key = load_pub_key(state["REP_PUB_KEY"].encode("utf8"))
+    secret_key = ecdh_shared_key(ephemeral_priv_key, server_pub_key, 32)
+    serialized_pub_key = serialize_pub_key(ephemeral_pub_key)
+
+    data = len(serialized_pub_key).to_bytes(2, "big") + serialized_pub_key
+      
+    req = requests.get(f'http://{state["REP_ADDRESS"]}/organization/list', data=data)
+
+    if req.status_code == 200:
+        body_len = int.from_bytes(req.content[:2], "big")
+        body = req.content[2:2+body_len]
+        signature = req.content[2+body_len:]
+
+        if verify_ecdsa(server_pub_key, body, signature):
+            logger.info("Organizations List:")
+            logger.info(decrypt_aes256_cbc(secret_key, body[:16], body[16:]).decode("utf8"))
+        else:
+            logger.error("Could not authenticate the server, response signature mismatch! Someone could be eavesdropping on you!")
+            sys.exit(-1)
+        
+    else:
+        logger.error(req.json())
+        sys.exit(-1)
+
+if __name__ == "__main__":
+    main()
